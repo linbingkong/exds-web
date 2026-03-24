@@ -31,6 +31,7 @@ import TradeReviewPage from '../pages/TradeReviewPage';
 import DayAheadTradeReviewPage from '../pages/DayAheadTradeReviewPage';
 import { IntentCustomerDiagnosisPage } from '../pages/IntentCustomerDiagnosisPage';
 import UserPermissionsPage from '../pages/UserPermissionsPage';
+import MonthlyTradeReviewPage from '../pages/MonthlyTradeReviewPage';
 
 export interface RouteConfig {
     path: string;
@@ -76,6 +77,7 @@ export const routeConfigs: RouteConfig[] = [
     { path: '/trading-strategy/day-ahead', title: '日前交易策略', component: PlaceholderPage },
 
     // 交易复盘
+    { path: '/trade-review/monthly-review', title: '月度交易复盘', component: MonthlyTradeReviewPage },
     { path: '/trade-review/monthly-trading-review', title: '月内交易复盘', component: TradeReviewPage },
     { path: '/trade-review/spot-review', title: '日前交易复盘', component: DayAheadTradeReviewPage },
 

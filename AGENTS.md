@@ -78,6 +78,12 @@ npm test --prefix frontend
 
 任一失败，禁止提交。
 
+补充约束：
+
+1. 新增业务页面、菜单、模块权限或写接口时，除更新代码外，还必须同步更新 `webapp/scripts/init_auth_data.py`（适用时）。
+2. 只要修改了 `webapp/scripts/init_auth_data.py`，必须执行：`python -m webapp.scripts.init_auth_data`，否则角色配置页与权限清单可能仍显示旧数据。
+3. 此类任务优先使用项目技能：`exds-new-module`。
+
 ## 7. 后端开发规范
 
 1. 所有数据库操作通过 `webapp.tools.mongo.DATABASE`。

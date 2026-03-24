@@ -112,6 +112,7 @@ const menuItems: MenuItem[] = [
         text: '交易复盘',
         icon: <ShieldIcon />,
         subItems: [
+            { text: '月度交易复盘', path: '/trade-review/monthly-review', icon: <CalendarMonthOutlined /> },
             { text: '月内交易复盘', path: '/trade-review/monthly-trading-review', icon: <FunctionsOutlined /> },
             { text: '日前交易复盘', path: '/trade-review/spot-review', icon: <BarChartOutlined /> },
         ],

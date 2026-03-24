@@ -1,0 +1,7 @@
+interface:
+  display_name: "新增模块接入"
+  short_description: "补齐页面、菜单、权限与种子同步流程"
+  default_prompt: "Use $exds-new-module to add or adjust a business page/module without missing menu, route, permission, or seed sync steps."
+
+policy:
+  allow_implicit_invocation: true

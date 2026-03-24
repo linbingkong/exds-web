@@ -49,6 +49,7 @@ const ROUTE_PERMISSION_RULES: RoutePermissionRule[] = [
     { pattern: /^\/trading-strategy\/contract-curve(\/.*)?$/, viewPermission: modulePermission('strategy_intra_month', 'view') },
     { pattern: /^\/trading-strategy\/d-2(\/.*)?$/, viewPermission: modulePermission('strategy_dayahead', 'view') },
     { pattern: /^\/trading-strategy\/day-ahead(\/.*)?$/, viewPermission: modulePermission('strategy_dayahead', 'view') },
+    { pattern: /^\/trade-review\/monthly-review(\/.*)?$/, viewPermission: modulePermission('review_monthly', 'view') },
     { pattern: /^\/trade-review\/monthly-trading-review(\/.*)?$/, viewPermission: modulePermission('review_intra_month', 'view') },
     { pattern: /^\/trade-review\/spot-review(\/.*)?$/, viewPermission: modulePermission('review_dayahead', 'view') },
     { pattern: /^\/settlement\/pre-settlement-overview(\/.*)?$/, viewPermission: modulePermission('settlement_daily_overview', 'view') },

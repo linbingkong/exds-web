@@ -47,6 +47,7 @@ import TradeReviewPage from './pages/TradeReviewPage';
 import DayAheadTradeReviewPage from './pages/DayAheadTradeReviewPage';
 import { IntentCustomerDiagnosisPage } from './pages/IntentCustomerDiagnosisPage';
 import UserPermissionsPage from './pages/UserPermissionsPage';
+import MonthlyTradeReviewPage from './pages/MonthlyTradeReviewPage';
 import { TabProvider } from './contexts/TabContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { DesktopTabLayout } from './layouts/DesktopTabLayout';
@@ -120,6 +121,7 @@ const ResponsiveLayout: React.FC = () => {
                     <Route path="trading-strategy/day-ahead" element={<PlaceholderPage />} />
 
                     {/* 交易复盘 */}
+                    <Route path="trade-review/monthly-review" element={<MonthlyTradeReviewPage />} />
                     <Route path="trade-review/monthly-trading-review" element={<TradeReviewPage />} />
                     <Route path="trade-review/spot-review" element={<DayAheadTradeReviewPage />} />
 
