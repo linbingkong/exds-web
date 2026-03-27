@@ -651,3 +651,155 @@
 
 
 
+## 10. `contracts_detailed_daily` - 中长期日分解合同（明细）
+
+该集合存储按天分解的、精细到具体合同的“市场化”和“绿电”中长期交易数据。
+
+- **数据来源**: `rpa.pipelines.long_term_contracts`
+- **更新频率**: 每日
+
+### 10.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `合同名称` | String | **[复合主键]** 合同的唯一名称。 |
+| `date` | String | **[复合主键]** 数据所属日期，格式 `YYYY-MM-DD`。 |
+| `periods` | Array | 包含分时段数据的数组，每个元素是一个对象。 |
+| `periods.period` | Number | 时段序号 (1-48)。 |
+| `periods.quantity_mwh` | Number | 该时段的合同电量 (MWh)。 |
+| `periods.price_yuan_per_mwh` | Number | 该时段的合同电价 (元/MWh)。 |
+| `daily_total_quantity` | Number | 当日总电量 (MWh)。 |
+| `daily_avg_price` | Number | 当日加权平均价 (元/MWh)。 |
+| `contract_type` | String | 合同类型，如 "市场化", "绿电"。 |
+| `contract_period` | String | 合同周期，如 "年度", "月度", "月内"。 |
+| `entity` | String | 实体，固定为 "售电公司"。 |
+| `合同类型` | String | 原始合同类型。 |
+| `交易序列名称` | String | 交易序列的名称。 |
+| `售方名称` | String | 合同的售方。 |
+| `购方名称` | String | 合同的购方。 |
+| `购电类型` | String | 购电类型。 |
+
+### 10.2. 索引
+
+- `(合同名称: 1, date: 1)`: 唯一复合索引，确保每个合同每天的数据唯一。
+- `(contract_type: 1, contract_period: 1, date: -1)`: 普通复合索引，用于快速查询特定类型和周期的合同数据。
+
+---
+
+## 11. `contracts_aggregated_daily` - 中长期日分解合同（聚合）
+
+该集合存储按天、按合同类型、按合同周期聚合的中长期交易数据。
+
+- **数据来源**: `rpa.pipelines.long_term_contracts`
+- **更新频率**: 每日
+
+### 11.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `entity` | String | **[复合主键]** 实体，如 "全市场", "售电公司"。 |
+| `date` | String | **[复合主键]** 数据所属日期，格式 `YYYY-MM-DD`。 |
+| `contract_type` | String | **[复合主键]** 合同类型，如 "整体", "市场化", "绿电"。 |
+| `contract_period` | String | **[复合主键]** 合同周期，如 "整体", "年度", "月度"。 |
+| `periods` | Array | 包含分时段数据的数组，结构同 `contracts_detailed_daily`。 |
+| `daily_total_quantity` | Number | 当日总电量 (MWh)。 |
+| `daily_avg_price` | Number | 当日加权平均价 (元/MWh)。 |
+
+### 11.2. 索引
+
+- `(entity: 1, date: 1, contract_type: 1, contract_period: 1)`: 唯一复合索引，确保每个维度组合下的日聚合数据唯一。
+
+---
+
+## 12. `trade_review_monthly_summary` - 月度交易复盘聚合结果
+
+该集合用于保存“按月聚合后的交易复盘结果”，供“月度交易复盘”页面直接读取。
+
+- **用途定位**: 结果集 / 预聚合集
+- **设计目标**:
+  1. 统一页面卡片、日度 Tab、48 时段 Tab 的指标口径
+  2. 避免前端每次打开页面都跨多个原始集合实时重算
+  3. 为后续重算、版本升级、自动诊断预留结果落点
+
+### 12.1. 设计说明
+
+- 一条记录对应“一个统计月份”的复盘结果
+- 建议主键使用 `month`
+- 首版只保存当前有效版本；如后续需要保留历史版本，可扩展 `_id = {month}_{version}`
+- 本集合不替代原始数据源，仅沉淀标准化复盘结果
+
+### 12.2. 字段说明
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `_id` | `String` | 记录主键，建议为 `YYYY-MM` |
+| `month` | `String` | 统计月份，格式 `YYYY-MM` |
+| `calc_version` | `String` | 计算口径版本号 |
+| `calc_status` | `String` | 计算状态，取值如 `success / failed / partial` |
+| `calc_message` | `String` | 计算结果说明 |
+| `data_range` | `Object` | 数据覆盖范围 |
+| `data_range.start_date` | `String` | 起始日期，格式 `YYYY-MM-DD` |
+| `data_range.end_date` | `String` | 结束日期，格式 `YYYY-MM-DD` |
+| `overview` | `Object` | 页面顶部总览信息 |
+| `overview.total_load_mwh` | `Number` | 月度实际总电量，单位 `MWh` |
+| `overview.spot_avg_price` | `Number` | 全月实时现货加权均价，单位 `元/MWh` |
+| `overview.total_contribution_amount` | `Number` | 四类交易合计贡献值，单位 `元` |
+| `overview.total_exposed_mwh` | `Number` | 剩余风险暴露电量，单位 `MWh` |
+| `overview.total_exposed_amount` | `Number` | 剩余风险暴露金额，单位 `元` |
+| `overview.settlement_price_impact_amount` | `Number` | 对采购结算成本的合计影响金额，单位 `元` |
+| `type_cards` | `Array` | 四类交易对比卡数据 |
+| `type_cards[].trade_type` | `String` | 交易类型，取值如 `annual / monthly / within_month / day_ahead` |
+| `type_cards[].label` | `String` | 展示名称，如“年度交易” |
+| `type_cards[].covered_mwh` | `Number` | 覆盖电量，单位 `MWh` |
+| `type_cards[].energy_share` | `Number` | 电量占比 |
+| `type_cards[].avg_trade_price` | `Number` | 交易均价，单位 `元/MWh` |
+| `type_cards[].spot_weighted_price` | `Number` | 按覆盖电量加权的实时现货均价，单位 `元/MWh` |
+| `type_cards[].spot_spread` | `Number` | 现货价差，单位 `元/MWh` |
+| `type_cards[].contribution_amount` | `Number` | 贡献值，单位 `元` |
+| `type_cards[].win_rate` | `Number` | 胜率 |
+| `type_cards[].positive_bucket_count` | `Number` | 正贡献单元数 |
+| `type_cards[].negative_bucket_count` | `Number` | 负贡献单元数 |
+| `type_cards[].neutral_bucket_count` | `Number` | 无贡献或无数据单元数 |
+| `type_cards[].settlement_price_impact_amount` | `Number` | 对采购结算成本的影响金额，单位 `元` |
+| `daily_view` | `Array` | 日度视图数据 |
+| `daily_view[].date` | `String` | 日期，格式 `YYYY-MM-DD` |
+| `daily_view[].actual_load_mwh` | `Number` | 当日实际电量，单位 `MWh` |
+| `daily_view[].spot_avg_price` | `Number` | 当日实时现货均价，单位 `元/MWh` |
+| `daily_view[].total_contribution_amount` | `Number` | 当日合计贡献值，单位 `元` |
+| `daily_view[].exposed_mwh` | `Number` | 当日风险暴露电量，单位 `MWh` |
+| `daily_view[].exposed_amount` | `Number` | 当日风险暴露金额，单位 `元` |
+| `daily_view[].trade_types` | `Array` | 四类交易的当日明细 |
+| `daily_view[].trade_types[].trade_type` | `String` | 交易类型 |
+| `daily_view[].trade_types[].volume_mwh` | `Number` | 当日电量，单位 `MWh` |
+| `daily_view[].trade_types[].avg_price` | `Number` | 当日交易均价，单位 `元/MWh` |
+| `daily_view[].trade_types[].contribution_amount` | `Number` | 当日贡献值，单位 `元` |
+| `daily_view[].trade_types[].spot_spread` | `Number` | 当日现货价差，单位 `元/MWh` |
+| `period_view` | `Array` | 48 时段视图数据 |
+| `period_view[].period` | `Number` | 时段序号，1~48 |
+| `period_view[].time_label` | `String` | 时段标签，如 `00:00-00:30` |
+| `period_view[].actual_load_mwh` | `Number` | 该时段月累计或日均实际电量，单位 `MWh` |
+| `period_view[].spot_avg_price` | `Number` | 该时段实时现货均价，单位 `元/MWh` |
+| `period_view[].total_contribution_amount` | `Number` | 该时段合计贡献值，单位 `元` |
+| `period_view[].exposed_mwh` | `Number` | 该时段风险暴露电量，单位 `MWh` |
+| `period_view[].exposed_amount` | `Number` | 该时段风险暴露金额，单位 `元` |
+| `period_view[].trade_types` | `Array` | 四类交易的时段明细 |
+| `period_view[].trade_types[].trade_type` | `String` | 交易类型 |
+| `period_view[].trade_types[].volume_mwh` | `Number` | 电量，单位 `MWh` |
+| `period_view[].trade_types[].avg_price` | `Number` | 交易均价，单位 `元/MWh` |
+| `period_view[].trade_types[].contribution_amount` | `Number` | 贡献值，单位 `元` |
+| `period_view[].trade_types[].spot_spread` | `Number` | 现货价差，单位 `元/MWh` |
+| `diagnosis_texts` | `Array[String]` | 自动诊断结论列表 |
+| `source_meta` | `Object` | 数据来源更新时间摘要 |
+| `source_meta.contracts_last_updated_at` | `String(DateTime ISO)` | 合同数据最近更新时间 |
+| `source_meta.trade_last_updated_at` | `String(DateTime ISO)` | 交易数据最近更新时间 |
+| `source_meta.spot_last_updated_at` | `String(DateTime ISO)` | 现货数据最近更新时间 |
+| `created_at` | `String(DateTime ISO)` | 首次创建时间 |
+| `updated_at` | `String(DateTime ISO)` | 最近更新时间 |
+
+### 12.3. 索引建议
+
+- `month`（唯一索引）
+- `calc_status`
+- `updated_at`
+
+---

@@ -98,6 +98,7 @@ npm test --prefix frontend
 3. Recharts 图表默认必须去掉点击或键盘聚焦后的黑色焦点外框；图表容器统一补充 `& .recharts-surface:focus { outline: none; }`，必要时补充 `& *:focus { outline: none !important; }`。
 4. 写操作按钮必须做前置权限控制（禁用/隐藏 + 清晰提示）。
 5. 移动端优先，保持响应式布局。
+6. 页面根容器的外层留白需与同类页面保持一致，默认不要额外叠加明显的左侧与顶部间距；如无特殊设计要求，优先复用现有页面的 gutter 和首屏间距。
 
 ## 9. 语言与协作约束
 

@@ -202,6 +202,95 @@ class ContractEarningCalculationResponse(BaseModel):
     period_rows: List[ContractEarningPeriodRow] = Field(default_factory=list, description="逐时段收益明细")
 
 
+class MonthlyReviewDataRange(BaseModel):
+    start_date: Optional[str] = Field(None, description="起始日期 YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="结束日期 YYYY-MM-DD")
+
+
+class MonthlyReviewOverview(BaseModel):
+    total_load_mwh: Optional[float] = Field(None, description="月度实际总电量")
+    spot_avg_price: Optional[float] = Field(None, description="全月实时现货加权均价")
+    total_contribution_amount: Optional[float] = Field(None, description="四类交易合计贡献值")
+    total_exposed_mwh: Optional[float] = Field(None, description="剩余风险暴露电量")
+    total_exposed_amount: Optional[float] = Field(None, description="剩余风险暴露金额")
+    settlement_price_impact_amount: Optional[float] = Field(None, description="采购结算成本影响金额")
+
+
+class MonthlyReviewTypeCard(BaseModel):
+    trade_type: str = Field(..., description="交易类型")
+    label: str = Field(..., description="展示名称")
+    covered_mwh: float = Field(0.0, description="覆盖电量")
+    energy_share: Optional[float] = Field(None, description="电量占比")
+    avg_trade_price: Optional[float] = Field(None, description="交易均价")
+    spot_weighted_price: Optional[float] = Field(None, description="按覆盖电量加权的实时现货均价")
+    spot_spread: Optional[float] = Field(None, description="现货价差")
+    contribution_amount: Optional[float] = Field(None, description="贡献值")
+    win_rate: Optional[float] = Field(None, description="胜率")
+    positive_bucket_count: int = Field(0, description="正贡献单元数")
+    negative_bucket_count: int = Field(0, description="负贡献单元数")
+    neutral_bucket_count: int = Field(0, description="无贡献或无数据单元数")
+    settlement_price_impact_amount: Optional[float] = Field(None, description="采购结算成本影响金额")
+
+
+class MonthlyReviewTradePoint(BaseModel):
+    trade_type: str = Field(..., description="交易类型")
+    volume_mwh: float = Field(0.0, description="电量")
+    avg_price: Optional[float] = Field(None, description="交易均价")
+    contribution_amount: Optional[float] = Field(None, description="贡献值")
+    spot_spread: Optional[float] = Field(None, description="现货价差")
+
+
+class MonthlyReviewDailyRow(BaseModel):
+    date: str = Field(..., description="日期 YYYY-MM-DD")
+    actual_load_mwh: Optional[float] = Field(None, description="实际电量")
+    spot_avg_price: Optional[float] = Field(None, description="当日实时现货均价")
+    total_contribution_amount: Optional[float] = Field(None, description="当日合计贡献值")
+    exposed_mwh: Optional[float] = Field(None, description="当日风险暴露电量")
+    exposed_amount: Optional[float] = Field(None, description="当日风险暴露金额")
+    trade_types: List[MonthlyReviewTradePoint] = Field(default_factory=list, description="四类交易当日明细")
+
+
+class MonthlyReviewPeriodRow(BaseModel):
+    period: int = Field(..., ge=1, le=48, description="时段")
+    time_label: str = Field(..., description="时段标签")
+    actual_load_mwh: Optional[float] = Field(None, description="该时段月累计或日均实际电量")
+    spot_avg_price: Optional[float] = Field(None, description="该时段实时现货均价")
+    total_contribution_amount: Optional[float] = Field(None, description="该时段合计贡献值")
+    exposed_mwh: Optional[float] = Field(None, description="该时段风险暴露电量")
+    exposed_amount: Optional[float] = Field(None, description="该时段风险暴露金额")
+    trade_types: List[MonthlyReviewTradePoint] = Field(default_factory=list, description="四类交易时段明细")
+
+
+class MonthlyReviewSourceMeta(BaseModel):
+    contracts_last_updated_at: Optional[str] = Field(None, description="合同数据最近更新时间")
+    trade_last_updated_at: Optional[str] = Field(None, description="交易数据最近更新时间")
+    spot_last_updated_at: Optional[str] = Field(None, description="现货数据最近更新时间")
+
+
+class MonthlyReviewOverviewResponse(BaseModel):
+    month: str = Field(..., description="统计月份 YYYY-MM")
+    exists: bool = Field(..., description="是否存在可展示结果")
+    calc_status: Optional[str] = Field(None, description="计算状态")
+    calc_message: Optional[str] = Field(None, description="计算结果说明")
+    data_range: Optional[MonthlyReviewDataRange] = Field(None, description="数据覆盖范围")
+    overview: Optional[MonthlyReviewOverview] = Field(None, description="月度总览")
+    updated_at: Optional[str] = Field(None, description="结果更新时间")
+
+
+class MonthlyReviewDetailResponse(BaseModel):
+    month: str = Field(..., description="统计月份 YYYY-MM")
+    calc_status: Optional[str] = Field(None, description="计算状态")
+    calc_message: Optional[str] = Field(None, description="计算结果说明")
+    data_range: Optional[MonthlyReviewDataRange] = Field(None, description="数据覆盖范围")
+    overview: Optional[MonthlyReviewOverview] = Field(None, description="月度总览")
+    type_cards: List[MonthlyReviewTypeCard] = Field(default_factory=list, description="四类交易对比卡")
+    daily_view: List[MonthlyReviewDailyRow] = Field(default_factory=list, description="日度视图数据")
+    period_view: List[MonthlyReviewPeriodRow] = Field(default_factory=list, description="48时段视图数据")
+    diagnosis_texts: List[str] = Field(default_factory=list, description="自动诊断结论")
+    source_meta: Optional[MonthlyReviewSourceMeta] = Field(None, description="数据来源摘要")
+    updated_at: Optional[str] = Field(None, description="结果更新时间")
+
+
 class TradeDetailResponse(BaseModel):
     trade_date: str = Field(..., description="交易日期 YYYY-MM-DD")
     delivery_date: str = Field(..., description="目标日期 YYYY-MM-DD")

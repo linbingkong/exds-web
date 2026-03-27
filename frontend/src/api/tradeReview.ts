@@ -2,6 +2,8 @@ import apiClient from './client';
 import {
     ContractEarningCalculationResponse,
     DayAheadReviewResponse,
+    MonthlyReviewDetailResponse,
+    MonthlyReviewOverviewResponse,
     MonthlyContractDetailResponse,
     OperationDetailResponse,
     TradeDateListResponse,
@@ -10,6 +12,18 @@ import {
 } from '../types/tradeReview';
 
 export const tradeReviewApi = {
+    fetchMonthlyOverview: (month: string, autoBuild = false) =>
+        apiClient.get<MonthlyReviewOverviewResponse>('/api/v1/trade-review/monthly-overview', {
+            params: { month, auto_build: autoBuild },
+        }),
+    fetchMonthlyDetail: (month: string) =>
+        apiClient.get<MonthlyReviewDetailResponse>('/api/v1/trade-review/monthly-detail', {
+            params: { month },
+        }),
+    recalculateMonthly: (month: string) =>
+        apiClient.post<MonthlyReviewDetailResponse>('/api/v1/trade-review/monthly-recalculate', null, {
+            params: { month },
+        }),
     fetchTradeDates: () => apiClient.get<TradeDateListResponse>('/api/v1/trade-review/trade-dates'),
     fetchTradeOverview: (tradeDate: string) =>
         apiClient.get<TradeOverviewResponse>('/api/v1/trade-review/overview', {

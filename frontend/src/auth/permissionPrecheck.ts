@@ -98,6 +98,7 @@ const MUTATION_PERMISSION_RULES: MutationPermissionRule[] = [
 
     { methods: ['post'], pattern: /^\/api\/v1\/manual-adjustment\/(save|reset)$/, allPermissions: [modulePermission('forecast_short_term_load', 'edit')] },
     { methods: ['post'], pattern: /^\/api\/v1\/price-forecast\/trigger$/, allPermissions: [modulePermission('forecast_dayahead_price', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/trade-review\/monthly-recalculate$/, allPermissions: [modulePermission('review_monthly', 'edit')] },
     { methods: ['post', 'put', 'patch', 'delete'], pattern: /^\/api\/v1\/weather\/locations(\/.*)?$/, allPermissions: [modulePermission('forecast_weather_data', 'edit')] },
     { methods: ['post'], pattern: /^\/api\/v1\/forecast-base-data\/curves$/, allPermissions: [modulePermission('forecast_price_baseline', 'edit')] },
 

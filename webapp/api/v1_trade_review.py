@@ -1,17 +1,21 @@
 ﻿import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from webapp.api.dependencies.authz import CurrentUserContext, require_permission
 from webapp.models.trade_review import (
     ContractEarningCalculationResponse,
     DayAheadReviewResponse,
+    MonthlyReviewDetailResponse,
+    MonthlyReviewOverviewResponse,
     MonthlyContractDetailResponse,
     OperationDetailResponse,
     TradeDateListResponse,
     TradeDetailResponse,
     TradeOverviewResponse,
 )
+from webapp.services.monthly_trade_review_service import MonthlyTradeReviewService
 from webapp.services.trade_review_service import TradeReviewService
 from webapp.tools.mongo import DATABASE
 
@@ -24,6 +28,10 @@ def get_service() -> TradeReviewService:
     return TradeReviewService(DATABASE)
 
 
+def get_monthly_service() -> MonthlyTradeReviewService:
+    return MonthlyTradeReviewService(DATABASE)
+
+
 def _validate_date(date_str: str) -> None:
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
@@ -31,6 +39,16 @@ def _validate_date(date_str: str) -> None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="日期格式无效，请使用 YYYY-MM-DD 格式",
+        ) from exc
+
+
+def _validate_month(month_str: str) -> None:
+    try:
+        datetime.strptime(month_str, "%Y-%m")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="月份格式无效，请使用 YYYY-MM 格式",
         ) from exc
 
 
@@ -134,4 +152,46 @@ def get_day_ahead_review(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("get_day_ahead_review error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+@router.get("/monthly-overview", response_model=MonthlyReviewOverviewResponse, summary="获取月度交易复盘概览")
+def get_monthly_overview(
+    month: str = Query(..., description="统计月份 YYYY-MM"),
+    auto_build: bool = Query(False, description="是否在查询时自动计算最新结果"),
+) -> MonthlyReviewOverviewResponse:
+    _validate_month(month)
+    try:
+        return get_monthly_service().get_monthly_overview(month, auto_build=auto_build)
+    except Exception as exc:
+        logger.error("get_monthly_overview error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+@router.get("/monthly-detail", response_model=MonthlyReviewDetailResponse, summary="获取月度交易复盘详情")
+def get_monthly_detail(
+    month: str = Query(..., description="统计月份 YYYY-MM"),
+) -> MonthlyReviewDetailResponse:
+    _validate_month(month)
+    try:
+        return get_monthly_service().get_monthly_detail(month)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("get_monthly_detail error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+@router.post("/monthly-recalculate", response_model=MonthlyReviewDetailResponse, summary="立即计算月度交易复盘")
+def recalculate_monthly_detail(
+    month: str = Query(..., description="统计月份 YYYY-MM"),
+    _ctx: CurrentUserContext = Depends(require_permission("module:review_monthly:edit")),
+) -> MonthlyReviewDetailResponse:
+    _validate_month(month)
+    try:
+        return get_monthly_service().recalculate_monthly_detail(month)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("recalculate_monthly_detail error: %s", exc, exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc

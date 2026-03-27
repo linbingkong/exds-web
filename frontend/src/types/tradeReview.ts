@@ -3,6 +3,95 @@ export interface TradeDateListResponse {
     trade_dates: string[];
 }
 
+export interface MonthlyReviewDataRange {
+    start_date?: string | null;
+    end_date?: string | null;
+}
+
+export interface MonthlyReviewOverview {
+    total_load_mwh?: number | null;
+    spot_avg_price?: number | null;
+    total_contribution_amount?: number | null;
+    total_exposed_mwh?: number | null;
+    total_exposed_amount?: number | null;
+    settlement_price_impact_amount?: number | null;
+}
+
+export interface MonthlyReviewTypeCard {
+    trade_type: 'annual' | 'monthly' | 'within_month' | 'day_ahead' | string;
+    label: string;
+    covered_mwh: number;
+    energy_share?: number | null;
+    avg_trade_price?: number | null;
+    spot_weighted_price?: number | null;
+    spot_spread?: number | null;
+    contribution_amount?: number | null;
+    win_rate?: number | null;
+    positive_bucket_count: number;
+    negative_bucket_count: number;
+    neutral_bucket_count: number;
+    settlement_price_impact_amount?: number | null;
+}
+
+export interface MonthlyReviewTradePoint {
+    trade_type: 'annual' | 'monthly' | 'within_month' | 'day_ahead' | string;
+    volume_mwh: number;
+    avg_price?: number | null;
+    contribution_amount?: number | null;
+    spot_spread?: number | null;
+}
+
+export interface MonthlyReviewDailyRow {
+    date: string;
+    actual_load_mwh?: number | null;
+    spot_avg_price?: number | null;
+    total_contribution_amount?: number | null;
+    exposed_mwh?: number | null;
+    exposed_amount?: number | null;
+    trade_types: MonthlyReviewTradePoint[];
+}
+
+export interface MonthlyReviewPeriodRow {
+    period: number;
+    time_label: string;
+    actual_load_mwh?: number | null;
+    spot_avg_price?: number | null;
+    total_contribution_amount?: number | null;
+    exposed_mwh?: number | null;
+    exposed_amount?: number | null;
+    trade_types: MonthlyReviewTradePoint[];
+}
+
+export interface MonthlyReviewSourceMeta {
+    contracts_last_updated_at?: string | null;
+    trade_last_updated_at?: string | null;
+    spot_last_updated_at?: string | null;
+}
+
+export interface MonthlyReviewOverviewResponse {
+    month: string;
+    exists: boolean;
+    calc_status?: string | null;
+    calc_message?: string | null;
+    data_range?: MonthlyReviewDataRange | null;
+    overview?: MonthlyReviewOverview | null;
+    updated_at?: string | null;
+}
+
+export interface MonthlyReviewDetailResponse {
+    month: string;
+    calc_status?: string | null;
+    calc_message?: string | null;
+    data_range?: MonthlyReviewDataRange | null;
+    overview?: MonthlyReviewOverview | null;
+    type_cards: MonthlyReviewTypeCard[];
+    daily_view: MonthlyReviewDailyRow[];
+    period_view: MonthlyReviewPeriodRow[];
+    diagnosis_texts: string[];
+    source_meta?: MonthlyReviewSourceMeta | null;
+    updated_at?: string | null;
+}
+
 export interface DeliveryDateSummary {
     delivery_date: string;
     record_count: number;
