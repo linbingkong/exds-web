@@ -18,6 +18,7 @@ from webapp.api import (
     v1_customer_energy,
     v1_wholesale_monthly_settlement,
     v1_intent_customer_diagnosis,
+    v1_customer_profit_analysis,
     medium_term_forecast  # New module
 )
 from webapp.api import v1_auth
@@ -56,6 +57,7 @@ router.include_router(v1_trade_review.router)
 router.include_router(v1_customer_energy.router)
 router.include_router(v1_wholesale_monthly_settlement.router)
 router.include_router(v1_intent_customer_diagnosis.router)
+router.include_router(v1_customer_profit_analysis.router, prefix="/customer-profit-analysis", tags=["Customer Profit Analysis"])
 
 # Include additional routers previously in main.py
 router.include_router(v1_rpa_monitor.router, prefix="/rpa", tags=["RPA监控"])

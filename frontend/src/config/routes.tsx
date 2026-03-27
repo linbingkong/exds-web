@@ -32,6 +32,7 @@ import DayAheadTradeReviewPage from '../pages/DayAheadTradeReviewPage';
 import { IntentCustomerDiagnosisPage } from '../pages/IntentCustomerDiagnosisPage';
 import UserPermissionsPage from '../pages/UserPermissionsPage';
 import MonthlyTradeReviewPage from '../pages/MonthlyTradeReviewPage';
+import CustomerProfitAnalysisPage from '../pages/CustomerProfitAnalysisPage';
 
 export interface RouteConfig {
     path: string;
@@ -88,7 +89,7 @@ export const routeConfigs: RouteConfig[] = [
     { path: '/settlement/customer-settlement-detail', title: '单客户结算详情', component: SingleCustomerSettlementDetailPage as any },
     { path: '/settlement/monthly-analysis', title: '月度结算详情', component: MonthlySettlementAnalysisPage },
     { path: '/settlement/monthly-customer-detail', title: '单客户月度结算详情', component: SingleCustomerMonthlyDetailPage },
-    { path: '/settlement/profit-analysis', title: '客户收益分析', component: PlaceholderPage },
+    { path: '/settlement/profit-analysis', title: '客户收益分析', component: CustomerProfitAnalysisPage },
 
     // 基础数据
     { path: '/basic-data/grid-price', title: '国网代理购电', component: GridAgencyPricePage },

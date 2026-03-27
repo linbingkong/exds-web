@@ -48,6 +48,7 @@ import DayAheadTradeReviewPage from './pages/DayAheadTradeReviewPage';
 import { IntentCustomerDiagnosisPage } from './pages/IntentCustomerDiagnosisPage';
 import UserPermissionsPage from './pages/UserPermissionsPage';
 import MonthlyTradeReviewPage from './pages/MonthlyTradeReviewPage';
+import CustomerProfitAnalysisPage from './pages/CustomerProfitAnalysisPage';
 import { TabProvider } from './contexts/TabContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { DesktopTabLayout } from './layouts/DesktopTabLayout';
@@ -132,7 +133,7 @@ const ResponsiveLayout: React.FC = () => {
                     <Route path="settlement/customer-settlement-detail" element={<SingleCustomerSettlementDetailPage />} />
                     <Route path="settlement/monthly-analysis" element={<MonthlySettlementAnalysisPage />} />
                     <Route path="settlement/monthly-customer-detail" element={<SingleCustomerMonthlyDetailPage />} />
-                    <Route path="settlement/profit-analysis" element={<PlaceholderPage />} />
+                    <Route path="settlement/profit-analysis" element={<CustomerProfitAnalysisPage />} />
 
                     {/* 基础数据 */}
                     <Route path="basic-data/grid-price" element={<GridAgencyPricePage />} />
