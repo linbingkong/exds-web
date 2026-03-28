@@ -6,7 +6,7 @@ import {
     TableContainer, TableHead, TableRow, Card, CardContent, Divider,
     ToggleButtonGroup, ToggleButton, Button, Dialog, DialogTitle,
     DialogContent, DialogActions, CircularProgress as MUICircularProgress,
-    List, ListItem, ListItemText, Typography as MUITypography
+    List, ListItem, ListItemText, Typography as MUITypography, alpha
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -103,7 +103,19 @@ const StatCard: React.FC<{
     color?: string;
     valueColor?: string;
 }> = ({ title, value, subtitle, icon, color = 'primary.main', valueColor }) => (
-    <Paper sx={{ p: { xs: 1.5, sm: 2 }, display: 'flex', alignItems: 'center', height: '100%' }} elevation={2}>
+    <Paper
+        variant="outlined"
+        sx={{
+            p: { xs: 1.5, sm: 2 },
+            display: 'flex',
+            alignItems: 'center',
+            height: '100%',
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: alpha(color, 0.2),
+            background: `linear-gradient(135deg, ${alpha(color, 0.03)} 0%, ${alpha(color, 0.07)} 100%)`,
+        }}
+    >
         <Box sx={{ fontSize: { xs: 30, sm: 40 }, color, mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center' }}>
             {icon}
         </Box>

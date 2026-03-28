@@ -20,7 +20,8 @@ import {
     Snackbar,
     useTheme,
     useMediaQuery,
-    LinearProgress
+    LinearProgress,
+    alpha
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -342,14 +343,16 @@ export const LoadDataDiagnosisPage: React.FC = () => {
         tooltip?: string;
     }> = ({ title, value, icon, color, onClick, tooltip }) => (
         <Paper
-            elevation={1}
+            variant="outlined"
             sx={{
                 p: { xs: 1.5, sm: 2 },
                 display: 'flex',
                 alignItems: 'center',
+                borderRadius: 2,
                 bgcolor: 'background.paper',
                 border: '1px solid',
-                borderColor: 'divider',
+                borderColor: alpha(color, 0.2),
+                background: `linear-gradient(135deg, ${alpha(color, 0.03)} 0%, ${alpha(color, 0.07)} 100%)`,
                 cursor: onClick ? 'pointer' : 'default',
                 transition: 'all 0.2s',
                 '&:hover': onClick ? {
