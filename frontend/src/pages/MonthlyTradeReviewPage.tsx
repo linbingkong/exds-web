@@ -201,7 +201,7 @@ const MonthlyTradeReviewPage: React.FC = () => {
                             month={month}
                             dailyView={detail.daily_view}
                             periodView={detail.period_view}
-                            selectedTradeType={selectedTradeType}
+                            selectedTradeType="all"
                         />
                         <MonthlyTradeReviewDiagnosis detail={detail} />
                     </>
