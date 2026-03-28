@@ -18,9 +18,11 @@ import {
     TextField,
     Alert,
     Button,
+    Tooltip,
 } from '@mui/material';
 import InsightsIcon from '@mui/icons-material/Insights';
 import MenuIcon from '@mui/icons-material/Menu';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import CloseIcon from '@mui/icons-material/Close';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -32,9 +34,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { changeMyPassword, updateMyProfile } from '../api/authManagement';
 
 const drawerWidth = 260;
+const sidebarStorageKey = 'exds:desktop-sidebar-collapsed';
 
 export const DesktopTabLayout: React.FC = () => {
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const { openTabs, activeTabKey, setActiveTab, removeTab } = useTabContext();
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -55,6 +59,22 @@ export const DesktopTabLayout: React.FC = () => {
         return () => clearInterval(timer);
     }, []);
 
+    useEffect(() => {
+        const savedState = localStorage.getItem(sidebarStorageKey);
+        if (savedState === null) {
+            return;
+        }
+        try {
+            setSidebarCollapsed(JSON.parse(savedState));
+        } catch (loadError) {
+            console.error('读取侧边栏折叠状态失败:', loadError);
+        }
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem(sidebarStorageKey, JSON.stringify(sidebarCollapsed));
+    }, [sidebarCollapsed]);
+
     // 格式化日期时间显示
     const formatDateTime = (date: Date) => {
         const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -69,6 +89,10 @@ export const DesktopTabLayout: React.FC = () => {
 
     const handleDrawerToggle = () => {
         setMobileOpen(!mobileOpen);
+    };
+
+    const handleSidebarToggle = () => {
+        setSidebarCollapsed((prev) => !prev);
     };
 
     const handleTabChange = (_event: React.SyntheticEvent, newValue: string) => {
@@ -158,6 +182,8 @@ export const DesktopTabLayout: React.FC = () => {
         }
     };
 
+    const currentDrawerWidth = sidebarCollapsed ? 0 : drawerWidth;
+
     return (
         <Box sx={{ display: 'flex', bgcolor: 'background.default', minHeight: '100vh' }}>
             {/* 顶部工具栏 */}
@@ -184,6 +210,16 @@ export const DesktopTabLayout: React.FC = () => {
                     <Typography variant="h6" noWrap component="div">
                         电力交易辅助分析系统
                     </Typography>
+                    <Tooltip title={sidebarCollapsed ? '展开菜单' : '折叠菜单'}>
+                        <IconButton
+                            color="inherit"
+                            onClick={handleSidebarToggle}
+                            sx={{ ml: 1, display: { xs: 'none', md: 'inline-flex' } }}
+                            aria-label={sidebarCollapsed ? '展开菜单' : '折叠菜单'}
+                        >
+                            {sidebarCollapsed ? <MenuIcon /> : <ChevronLeftIcon />}
+                        </IconButton>
+                    </Tooltip>
 
                     {/* 右侧工具栏（仅桌面端显示） */}
                     <Box sx={{ flexGrow: 1 }} />
@@ -245,7 +281,11 @@ export const DesktopTabLayout: React.FC = () => {
             {/* 侧边栏 */}
             <Box
                 component="nav"
-                sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
+                sx={{
+                    width: { md: currentDrawerWidth },
+                    flexShrink: 0,
+                    transition: 'width 0.3s ease-in-out',
+                }}
             >
                 {/* 移动端抽屉 */}
                 <Drawer
@@ -268,11 +308,17 @@ export const DesktopTabLayout: React.FC = () => {
                 <Drawer
                     variant="permanent"
                     sx={{
-                        display: { xs: 'none', sm: 'block' },
+                        display: { xs: 'none', md: 'block' },
                         '& .MuiDrawer-paper': {
                             boxSizing: 'border-box',
-                            width: drawerWidth,
-                            borderRight: 'none',
+                            width: currentDrawerWidth,
+                            transition: 'width 0.3s ease-in-out',
+                            overflowX: 'hidden',
+                            borderRight: sidebarCollapsed ? 'none' : '1px solid',
+                            borderColor: 'divider',
+                            '& > *': {
+                                visibility: sidebarCollapsed ? 'hidden' : 'visible',
+                            },
                         },
                     }}
                     open
@@ -286,7 +332,8 @@ export const DesktopTabLayout: React.FC = () => {
                 component="main"
                 sx={{
                     flexGrow: 1,
-                    width: { sm: `calc(100% - ${drawerWidth}px)` },
+                    width: { md: `calc(100% - ${currentDrawerWidth}px)` },
+                    transition: 'width 0.3s ease-in-out',
                     display: 'flex',
                     flexDirection: 'column',
                 }}
