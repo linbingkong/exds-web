@@ -38,7 +38,8 @@ import {
     FormControl,
     InputLabel,
     Stack,
-    Divider
+    Divider,
+    alpha
 } from '@mui/material';
 import {
     ArrowLeft as ArrowLeftIcon,
@@ -456,8 +457,10 @@ export const CustomerLoadOverviewPage: React.FC = () => {
                             variant="outlined"
                             sx={{
                                 height: '100%',
-                                borderLeft: `4px solid ${card.color}`,
-                                bgcolor: 'background.paper'
+                                borderRadius: 2,
+                                border: '1px solid',
+                                borderColor: alpha(card.color, 0.2),
+                                background: `linear-gradient(135deg, ${alpha(card.color, 0.03)} 0%, ${alpha(card.color, 0.07)} 100%)`
                             }}
                         >
                             <CardContent

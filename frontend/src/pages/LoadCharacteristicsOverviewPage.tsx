@@ -5,7 +5,7 @@ import {
     IconButton, TextField, InputAdornment, FormControl, InputLabel, Select, MenuItem,
     CircularProgress, Tooltip, useMediaQuery, Tabs, Tab, Card, CardContent, ListSubheader
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import {
     ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend,
     ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, ZAxis, LineChart, Line,
@@ -398,8 +398,10 @@ const LoadCharacteristicsOverviewPage: React.FC = () => {
                             sx={{
                                 width: '100%',
                                 height: '100%',
-                                borderLeft: `4px solid ${card.color}`,
-                                bgcolor: 'background.paper'
+                                borderRadius: 2,
+                                border: '1px solid',
+                                borderColor: alpha(card.color, 0.2),
+                                background: `linear-gradient(135deg, ${alpha(card.color, 0.03)} 0%, ${alpha(card.color, 0.07)} 100%)`
                             }}
                         >
                             <CardContent

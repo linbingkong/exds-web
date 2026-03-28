@@ -17,7 +17,8 @@ import {
     useTheme,
     useMediaQuery,
     Tooltip,
-    Alert
+    Alert,
+    alpha,
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -285,19 +286,14 @@ export const CustomerLoadAnalysisPage: React.FC<CustomerLoadAnalysisPageProps> =
         setAutoTags(tags.filter((t: Tag) => t.source === 'AUTO'));
     };
 
-    // --- Render Helpers ---
-
-    const renderStatCard = (title: string, value: string | number, subtext?: string, color: string = 'text.primary') => (
-        <Card variant="outlined">
-            <CardContent sx={{ p: '8px !important', '&:last-child': { pb: '8px !important' } }}>
-                <Typography variant="caption" color="text.secondary">{title}</Typography>
-                <Typography variant="h6" sx={{ my: 0.5, fontWeight: 'medium', color }}>
-                    {value}
-                </Typography>
-                {subtext && <Typography variant="caption" color="text.secondary">{subtext}</Typography>}
-            </CardContent>
-        </Card>
-    );
+    const getKpiCardSx = (color: string) => ({
+        height: '100%',
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: alpha(color, 0.2),
+        background: `linear-gradient(135deg, ${alpha(color, 0.03)} 0%, ${alpha(color, 0.07)} 100%)`,
+        boxShadow: 'none',
+    });
 
     return (
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
@@ -570,7 +566,7 @@ export const CustomerLoadAnalysisPage: React.FC<CustomerLoadAnalysisPageProps> =
                                                     { label: '本年签约量', value: dailyData.stats.this_year_contract, unit: 'MWh', color: 'primary' as const, yoy: dailyData.stats.contract_yoy }
                                                 ].map((item) => (
                                                     <Grid key={item.label} size={6} sx={{ height: '100%' }}>
-                                                        <Card variant="outlined" sx={{ bgcolor: 'grey.50', height: '100%', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', border: '1px solid', borderColor: 'grey.200' }}>
+                                                        <Card variant="outlined" sx={getKpiCardSx(item.color === 'info' ? '#0288d1' : '#1565c0')}>
                                                             <CardContent sx={{ p: '6px 10px !important', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                                                                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>{item.label}</Typography>
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.1 }}>
@@ -603,7 +599,7 @@ export const CustomerLoadAnalysisPage: React.FC<CustomerLoadAnalysisPageProps> =
                                         </Box>
 
                                         {/* 第二排：累计用电量 */}
-                                        <Card variant="outlined" sx={{ bgcolor: 'grey.50', flex: 1, minHeight: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.02)', border: '1px solid', borderColor: 'grey.200' }}>
+                                        <Card variant="outlined" sx={{ ...getKpiCardSx('#00838f'), flex: 1, minHeight: 0 }}>
                                             <CardContent sx={{ p: '8px 12px !important', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                                                     <Box>
@@ -658,7 +654,7 @@ export const CustomerLoadAnalysisPage: React.FC<CustomerLoadAnalysisPageProps> =
                                         </Card>
 
                                         {/* 第三排：当月用电量 */}
-                                        <Card variant="outlined" sx={{ bgcolor: 'grey.50', flex: 1, minHeight: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.02)', border: '1px solid', borderColor: 'grey.200' }}>
+                                        <Card variant="outlined" sx={{ ...getKpiCardSx('#2e7d32'), flex: 1, minHeight: 0 }}>
                                             <CardContent sx={{ p: '8px 12px !important', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                                                     <Box>
