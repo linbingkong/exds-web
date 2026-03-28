@@ -49,6 +49,7 @@ import {
     YAxis,
 } from 'recharts';
 import {
+    ContributionGroup,
     CustomerProfitDashboard,
     CustomerProfitRow,
     customerProfitAnalysisApi,
@@ -62,6 +63,7 @@ const CACHE_KEY = 'customer_profit_analysis_cache_v1';
 const PIE_COLORS = ['#1565c0', '#2e7d32', '#ef6c00', '#8e24aa', '#00838f', '#90a4ae'];
 
 type SortField = 'gross_profit' | 'price_spread' | 'energy_mwh' | 'retail_revenue' | 'wholesale_cost' | 'customer_name';
+type ContributionMode = 'positive' | 'negative';
 
 const formatNumber = (value?: number | null, digits = 2): string => {
     if (value === null || value === undefined || Number.isNaN(value)) return '--';
@@ -85,7 +87,8 @@ const getValueColor = (value?: number | null): string => {
 };
 
 const renderPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, payload }: any) => {
-    if (!percent || percent < 0.06) return null;
+    if (!percent) return null;
+    if (!payload?.forceLabel && percent < 0.06) return null;
     const RADIAN = Math.PI / 180;
     const sin = Math.sin(-midAngle * RADIAN);
     const cos = Math.cos(-midAngle * RADIAN);
@@ -243,6 +246,7 @@ const CustomerProfitAnalysisPage: React.FC = () => {
     const [pageSize, setPageSize] = useState<number>(() => getCachedState('pageSize', 10));
     const [sortField, setSortField] = useState<SortField>(() => getCachedState('sortField', 'gross_profit'));
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => getCachedState('sortOrder', 'desc'));
+    const [contributionMode, setContributionMode] = useState<ContributionMode>(() => getCachedState('contributionMode', 'positive'));
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [dashboard, setDashboard] = useState<CustomerProfitDashboard | null>(null);
@@ -263,10 +267,11 @@ const CustomerProfitAnalysisPage: React.FC = () => {
                 pageSize,
                 sortField,
                 sortOrder,
+                contributionMode,
                 timestamp: Date.now(),
             })
         );
-    }, [month, viewMode, search, page, pageSize, sortField, sortOrder]);
+    }, [month, viewMode, search, page, pageSize, sortField, sortOrder, contributionMode]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -294,30 +299,39 @@ const CustomerProfitAnalysisPage: React.FC = () => {
         fetchData();
     }, [month, viewMode, search, sortField, sortOrder, page, pageSize]);
 
+    const contributionGroup = useMemo<ContributionGroup | null>(() => {
+        if (!dashboard) return null;
+        return contributionMode === 'positive' ? dashboard.positive_contribution : dashboard.negative_contribution;
+    }, [contributionMode, dashboard]);
+
     const contributionData = useMemo(() => {
-        if (!dashboard) return [];
-        const topRows = dashboard.positive_contribution.top5.map((item, index) => ({
+        if (!contributionGroup) return [];
+        const topRows = contributionGroup.top5.map((item, index) => ({
             name: item.customer_name,
             labelName: item.short_name || item.customer_name,
-            value: item.profit,
+            value: item.contribution_value,
+            profit: item.profit,
             avgSpread: item.avg_spread ?? null,
             percentage: item.percentage,
             fill: PIE_COLORS[index % PIE_COLORS.length],
+            forceLabel: true,
         }));
 
-        if (dashboard.positive_contribution.others.profit > 0) {
+        if (contributionGroup.others.contribution_value > 0) {
             topRows.push({
                 name: '其他',
                 labelName: '其他',
-                value: dashboard.positive_contribution.others.profit,
+                value: contributionGroup.others.contribution_value,
+                profit: contributionGroup.others.profit,
                 avgSpread: null,
-                percentage: dashboard.positive_contribution.others.percentage,
+                percentage: contributionGroup.others.percentage,
                 fill: PIE_COLORS[5],
+                forceLabel: false,
             });
         }
 
         return topRows;
-    }, [dashboard]);
+    }, [contributionGroup]);
 
     const profitRankingData = useMemo(() => {
         if (!dashboard) return [];
@@ -475,11 +489,35 @@ const CustomerProfitAnalysisPage: React.FC = () => {
                     <Grid container spacing={{ xs: 1, sm: 2 }} sx={{ mb: 2 }}>
                         <Grid size={{ xs: 12, md: 4 }}>
                             <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.5 }}>正收益贡献构成</Typography>
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.5 }}>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>贡献构成</Typography>
+                                    <ToggleButtonGroup
+                                        size="small"
+                                        exclusive
+                                        value={contributionMode}
+                                        onChange={(_, value: ContributionMode | null) => {
+                                            if (!value) return;
+                                            setContributionMode(value);
+                                        }}
+                                        sx={{
+                                            '& .MuiToggleButton-root': {
+                                                px: 1.25,
+                                                py: 0.4,
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                            },
+                                        }}
+                                    >
+                                        <ToggleButton value="positive">正收益</ToggleButton>
+                                        <ToggleButton value="negative">负收益</ToggleButton>
+                                    </ToggleButtonGroup>
+                                </Box>
                                 <Box sx={{ height: 320, '& .recharts-surface:focus': { outline: 'none' } }}>
                                     {contributionData.length === 0 ? (
                                         <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <Typography color="text.secondary">暂无正收益数据</Typography>
+                                            <Typography color="text.secondary">
+                                                {contributionMode === 'positive' ? '暂无正收益数据' : '暂无负收益数据'}
+                                            </Typography>
                                         </Box>
                                     ) : (
                                         <ResponsiveContainer width="100%" height="100%">
@@ -506,7 +544,7 @@ const CustomerProfitAnalysisPage: React.FC = () => {
                                                         const detail = payload[0]?.payload;
                                                         return (
                                                             <Paper sx={{ p: 1.5 }} elevation={3}>
-                                                                <Typography variant="body2">利润：{formatNumber(detail?.value, 2)} 元</Typography>
+                                                                <Typography variant="body2">利润：{formatNumber(detail?.profit ?? detail?.value, 2)} 元</Typography>
                                                                 <Typography variant="body2">
                                                                     平均价差：{detail?.avgSpread === null ? '--' : `${formatNumber(detail?.avgSpread, 3)} 元/MWh`}
                                                                 </Typography>

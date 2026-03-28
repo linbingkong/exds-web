@@ -43,7 +43,8 @@ class CustomerProfitAnalysisService:
 
         return {
             "kpi": self._build_kpi(merged_rows, source_map),
-            "positive_contribution": self._build_positive_contribution(merged_rows),
+            "positive_contribution": self._build_contribution(merged_rows, positive=True),
+            "negative_contribution": self._build_contribution(merged_rows, positive=False),
             "rankings": self._build_rankings(merged_rows),
             "customer_list": self._build_customer_list(
                 merged_rows,
@@ -282,13 +283,20 @@ class CustomerProfitAnalysisService:
             },
         }
 
-    def _build_positive_contribution(self, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-        positive_rows = [row for row in rows if float(row.get("gross_profit") or 0.0) > 0]
-        total_positive_profit = sum(float(row["gross_profit"]) for row in positive_rows)
-        sorted_rows = sorted(positive_rows, key=lambda item: item["gross_profit"], reverse=True)
+    def _build_contribution(self, rows: List[Dict[str, Any]], positive: bool) -> Dict[str, Any]:
+        if positive:
+            contribution_rows = [row for row in rows if float(row.get("gross_profit") or 0.0) > 0]
+            sorted_rows = sorted(contribution_rows, key=lambda item: item["gross_profit"], reverse=True)
+            total_profit = sum(float(row["gross_profit"]) for row in contribution_rows)
+        else:
+            contribution_rows = [row for row in rows if float(row.get("gross_profit") or 0.0) < 0]
+            sorted_rows = sorted(contribution_rows, key=lambda item: item["gross_profit"])
+            total_profit = sum(abs(float(row["gross_profit"])) for row in contribution_rows)
+
         top5 = []
         for row in sorted_rows[:5]:
             profit = float(row["gross_profit"])
+            contribution_value = abs(profit)
             top5.append(
                 {
                     "customer_id": row.get("customer_id"),
@@ -296,20 +304,27 @@ class CustomerProfitAnalysisService:
                     "short_name": row.get("short_name"),
                     "profit": round(profit, 2),
                     "avg_spread": round(float(row.get("price_spread") or 0.0), 6),
-                    "percentage": round((profit / total_positive_profit * 100) if total_positive_profit > 0 else 0.0, 2),
+                    "percentage": round((contribution_value / total_profit * 100) if total_profit > 0 else 0.0, 2),
+                    "contribution_value": round(contribution_value, 2),
                 }
             )
 
-        top5_profit = sum(item["profit"] for item in top5)
-        others_profit = round(total_positive_profit - top5_profit, 2)
+        top5_contribution = sum(item["contribution_value"] for item in top5)
+        others_contribution = round(total_profit - top5_contribution, 2)
+        others_profit = round(
+            sum(float(row["gross_profit"]) for row in sorted_rows[5:]),
+            2,
+        )
 
         return {
             "top5": top5,
             "others": {
                 "profit": others_profit,
-                "percentage": round((others_profit / total_positive_profit * 100) if total_positive_profit > 0 else 0.0, 2),
+                "percentage": round((others_contribution / total_profit * 100) if total_profit > 0 else 0.0, 2),
+                "contribution_value": others_contribution,
             },
-            "total_positive_profit": round(total_positive_profit, 2),
+            "total_profit": round(total_profit if positive else -total_profit, 2),
+            "contribution_type": "positive" if positive else "negative",
         }
 
     def _build_rankings(self, rows: List[Dict[str, Any]]) -> Dict[str, Any]:

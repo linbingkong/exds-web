@@ -18,13 +18,25 @@ export interface ProfitKpi {
     };
 }
 
-export interface PositiveContributionItem {
+export interface ContributionItem {
     customer_id: string;
     customer_name: string;
     short_name?: string;
     profit: number;
     avg_spread?: number;
     percentage: number;
+    contribution_value: number;
+}
+
+export interface ContributionGroup {
+    top5: ContributionItem[];
+    others: {
+        profit: number;
+        percentage: number;
+        contribution_value: number;
+    };
+    total_profit: number;
+    contribution_type: 'positive' | 'negative';
 }
 
 export interface RankingItem {
@@ -53,14 +65,8 @@ export interface CustomerProfitRow {
 
 export interface CustomerProfitDashboard {
     kpi: ProfitKpi;
-    positive_contribution: {
-        top5: PositiveContributionItem[];
-        others: {
-            profit: number;
-            percentage: number;
-        };
-        total_positive_profit: number;
-    };
+    positive_contribution: ContributionGroup;
+    negative_contribution: ContributionGroup;
     rankings: {
         profit: {
             top5: RankingItem[];
