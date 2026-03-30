@@ -221,7 +221,7 @@ const initialSeriesState: Record<TradeSeriesKey, boolean> = {
     spot_avg_price: true,
     actual_load_mwh: true,
     total_contribution_amount: true,
-    exposed_amount: true,
+    exposed_amount: false,
 };
 
 interface MonthlyTradeReviewChartPanelProps {
@@ -523,6 +523,7 @@ export const MonthlyTradeReviewChartPanel: React.FC<MonthlyTradeReviewChartPanel
                         <ComposedChart
                             syncId={`monthly-review-${mainTab}`}
                             data={rows}
+                            stackOffset="sign"
                             margin={{ top: 12, right: 16, left: 4, bottom: 8 }}
                             onClick={(state) => {
                                 const activeLabel = state?.activeLabel;
@@ -573,6 +574,7 @@ export const MonthlyTradeReviewChartPanel: React.FC<MonthlyTradeReviewChartPanel
                                         <Bar
                                             key={`${key}_contribution_amount`}
                                             yAxisId="left"
+                                            stackId="contribution"
                                             dataKey={`${key}_contribution_amount`}
                                             fill={alpha(COLORS[key], 0.72)}
                                             hide={!canShowKey(`${key}_contribution_amount` as TradeSeriesKey)}
