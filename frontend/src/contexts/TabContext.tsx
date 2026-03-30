@@ -8,6 +8,8 @@ export interface TabInfo {
     component: ReactNode; // 页面组件
 }
 
+export const PINNED_TAB_PATHS = ['/dashboard'];
+
 // Context 状态接口
 interface TabContextState {
     openTabs: TabInfo[];              // 打开的页签列表
@@ -44,6 +46,9 @@ export const TabProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     // 移除页签
     const removeTab = useCallback((key: string) => {
+        if (PINNED_TAB_PATHS.includes(key)) {
+            return;
+        }
         setOpenTabs((prevTabs) => {
             const newTabs = prevTabs.filter((t) => t.key !== key);
 

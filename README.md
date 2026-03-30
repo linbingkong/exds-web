@@ -69,3 +69,36 @@
 ```bash
 git config core.hooksPath .githooks
 ```
+
+### 服务器管理命令
+
+#### 查看端口占用情况
+```bash
+# Windows
+netstat -aon | findstr ":8005"  # 查看后端端口
+netstat -aon | findstr ":3000"  # 查看前端端口
+
+# Linux/Mac
+lsof -i :8005  # 查看后端端口
+lsof -i :3000  # 查看前端端口
+```
+
+#### 终止进程
+```bash
+# Windows
+taskkill /F /PID <进程ID>
+
+# Linux/Mac
+kill -9 <进程ID>
+```
+
+### 日志文件位置
+- 后端日志：`tmp/uvicorn.log`
+- 前端日志：`tmp/frontend.log`
+- 错误日志：`tmp/uvicorn.err.log`（传统方式）
+
+### 临时日志目录
+确保项目根目录下存在 `tmp` 目录：
+```bash
+mkdir tmp
+```

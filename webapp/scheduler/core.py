@@ -26,6 +26,9 @@ from webapp.scheduler.jobs.characteristics_jobs import (
 from webapp.scheduler.jobs.auth_jobs import (
     event_driven_auth_session_cleanup_job
 )
+from webapp.scheduler.jobs.dashboard_jobs import (
+    event_driven_dashboard_snapshot_job
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +109,15 @@ def setup_scheduler(app):
         'interval',
         minutes=2,
         id='web_event_auth_session_cleanup',
+        replace_existing=True
+    )
+
+    # 交易总览首页快照 (每5分钟检查结果数据签名)
+    scheduler.add_job(
+        event_driven_dashboard_snapshot_job,
+        'interval',
+        minutes=5,
+        id='web_event_dashboard_snapshot',
         replace_existing=True
     )
     

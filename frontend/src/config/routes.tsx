@@ -2,6 +2,7 @@
 import { LoadAnalysisPage } from '../pages/LoadAnalysisPage';
 import { SpotIntradayAnalysisPage } from '../pages/SpotIntradayAnalysisPage';
 import PlaceholderPage from '../components/PlaceholderPage';
+import DashboardPage from '../pages/DashboardPage';
 import GridAgencyPricePage from '../pages/GridAgencyPricePage';
 import RetailPackagePage from '../pages/RetailPackagePage';
 import { CustomerManagementPage } from '../pages/CustomerManagementPage';
@@ -42,7 +43,7 @@ export interface RouteConfig {
 }
 
 export const routeConfigs: RouteConfig[] = [
-    { path: '/dashboard', title: '交易总览', component: PlaceholderPage },
+    { path: '/dashboard', title: '交易总览', component: DashboardPage },
 
     // 客户管理
     { path: '/customer/profiles', title: '客户档案管理', component: CustomerManagementPage },

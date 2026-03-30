@@ -67,20 +67,37 @@ class CustomerProfitAnalysisService:
         return [f"{year}-{mon:02d}" for mon in range(1, month + 1)]
 
     def _resolve_month_sources(self, months: List[str]) -> Dict[str, str]:
+        summary_map: Dict[str, Dict[str, Any]] = {}
+        years = sorted({month.split("-")[0] for month in months})
+        for year in years:
+            for item in self.monthly_service.list_monthly_summaries(year):
+                summary_map[str(item.get("month") or "")] = item
+
         return {
-            month: ("monthly" if self._is_month_finalized(month) else "platform_daily")
+            month: (
+                "monthly"
+                if self._is_month_finalized(month, summary_map.get(month))
+                else "platform_daily"
+            )
             for month in months
         }
 
-    def _is_month_finalized(self, month: str) -> bool:
-        status_doc = self.monthly_service.get_month_status(month)
-        if not status_doc:
+    def _is_month_finalized(self, month: str, monthly_summary: Optional[Dict[str, Any]] = None) -> bool:
+        summary = monthly_summary
+        if summary is None:
+            year = month.split("-")[0]
+            summary = next(
+                (item for item in self.monthly_service.list_monthly_summaries(year) if item.get("month") == month),
+                None,
+            )
+        if not summary:
             return False
 
-        status = str(status_doc.get("status") or "").lower()
-        has_customer_docs = self.db[self.monthly_service.CUSTOMER_COLLECTION].count_documents({"month": month}) > 0
-        has_final_fields = status_doc.get("retail_total_fee") is not None and status_doc.get("retail_avg_price") is not None
-        return status == "completed" and has_customer_docs and has_final_fields
+        has_customer_docs = int(summary.get("customer_count") or 0) > 0
+        has_wholesale_settlement = bool(summary.get("wholesale_settled"))
+        has_settlement_fee = summary.get("settlement_total_fee") is not None
+        has_energy = float(summary.get("total_energy_mwh") or 0.0) > 0
+        return has_customer_docs and has_wholesale_settlement and has_settlement_fee and has_energy
 
     def _load_monthly_customer_profit(self, month: str) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
@@ -258,9 +275,29 @@ class CustomerProfitAnalysisService:
         return result
 
     def _build_kpi(self, rows: List[Dict[str, Any]], source_map: Dict[str, str]) -> Dict[str, Any]:
-        total_energy_mwh = sum(float(row.get("energy_mwh") or 0.0) for row in rows)
-        retail_revenue = sum(float(row.get("retail_revenue") or 0.0) for row in rows)
-        wholesale_cost = sum(float(row.get("wholesale_cost") or 0.0) for row in rows)
+        months = sorted(source_map.keys())
+        total_energy_mwh = 0.0
+        retail_revenue = 0.0
+        wholesale_cost = 0.0
+
+        summary_map: Dict[str, Dict[str, Any]] = {}
+        years = sorted({month.split("-")[0] for month in months})
+        for year in years:
+            for item in self.monthly_service.list_monthly_summaries(year):
+                summary_map[str(item.get("month") or "")] = item
+
+        for month in months:
+            if source_map.get(month) == "monthly":
+                summary = summary_map.get(month) or {}
+                total_energy_mwh += float(summary.get("total_energy_mwh") or 0.0)
+                retail_revenue += float(summary.get("settlement_total_fee") or 0.0)
+                wholesale_cost += float(summary.get("wholesale_total_cost") or 0.0)
+            else:
+                platform_summary = self._load_platform_daily_month_summary(month)
+                total_energy_mwh += float(platform_summary.get("total_energy_mwh") or 0.0)
+                retail_revenue += float(platform_summary.get("retail_revenue") or 0.0)
+                wholesale_cost += float(platform_summary.get("wholesale_cost") or 0.0)
+
         gross_profit = retail_revenue - wholesale_cost
         retail_avg_price = retail_revenue / total_energy_mwh if total_energy_mwh > 0 else 0.0
         wholesale_avg_price = wholesale_cost / total_energy_mwh if total_energy_mwh > 0 else 0.0
@@ -281,6 +318,68 @@ class CustomerProfitAnalysisService:
                 "monthly_months": monthly_months,
                 "platform_daily_months": platform_daily_months,
             },
+        }
+
+    def _load_platform_daily_month_summary(self, month: str) -> Dict[str, float]:
+        year, mon = map(int, month.split("-"))
+        last_day = calendar.monthrange(year, mon)[1]
+        start_date = f"{month}-01"
+        end_date = f"{month}-{last_day:02d}"
+
+        wholesale_cursor = self.db["settlement_daily"].find(
+            {"operating_date": {"$gte": start_date, "$lte": end_date}, "version": "PRELIMINARY"},
+            {"operating_date": 1, "real_time_volume": 1, "predicted_wholesale_cost": 1},
+        ).sort("operating_date", 1)
+        wholesale_by_date = {
+            str(doc.get("operating_date")): {
+                "volume_mwh": float(doc.get("real_time_volume") or 0.0),
+                "wholesale_cost": float(doc.get("predicted_wholesale_cost") or 0.0),
+            }
+            for doc in wholesale_cursor
+        }
+
+        retail_results = self.db["retail_settlement_daily"].aggregate(
+            [
+                {
+                    "$match": {
+                        "date": {"$gte": start_date, "$lte": end_date},
+                        "settlement_type": "daily",
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$date",
+                        "total_fee": {"$sum": "$total_fee"},
+                        "total_load": {"$sum": "$total_load_mwh"},
+                    }
+                },
+                {"$sort": {"_id": 1}},
+            ]
+        )
+        retail_by_date = {
+            str(item["_id"]): {
+                "retail_revenue": float(item.get("total_fee") or 0.0),
+                "retail_load": float(item.get("total_load") or 0.0),
+            }
+            for item in retail_results
+        }
+
+        total_energy_mwh = 0.0
+        retail_revenue = 0.0
+        wholesale_cost = 0.0
+        for date_str in sorted(set(wholesale_by_date.keys()) | set(retail_by_date.keys())):
+            if date_str not in wholesale_by_date:
+                continue
+            wholesale = wholesale_by_date[date_str]
+            retail = retail_by_date.get(date_str, {"retail_revenue": 0.0, "retail_load": 0.0})
+            total_energy_mwh += float(wholesale.get("volume_mwh") or 0.0)
+            retail_revenue += float(retail.get("retail_revenue") or 0.0)
+            wholesale_cost += float(wholesale.get("wholesale_cost") or 0.0)
+
+        return {
+            "total_energy_mwh": round(total_energy_mwh, 6),
+            "retail_revenue": round(retail_revenue, 2),
+            "wholesale_cost": round(wholesale_cost, 2),
         }
 
     def _build_contribution(self, rows: List[Dict[str, Any]], positive: bool) -> Dict[str, Any]:

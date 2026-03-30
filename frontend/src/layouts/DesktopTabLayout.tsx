@@ -29,7 +29,8 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import { Sidebar } from '../components/Sidebar';
-import { useTabContext } from '../contexts/TabContext';
+import { getRouteConfig } from '../config/routes';
+import { PINNED_TAB_PATHS, useTabContext } from '../contexts/TabContext';
 import { useAuth } from '../contexts/AuthContext';
 import { changeMyPassword, updateMyProfile } from '../api/authManagement';
 
@@ -39,10 +40,10 @@ const sidebarStorageKey = 'exds:desktop-sidebar-collapsed';
 export const DesktopTabLayout: React.FC = () => {
     const [mobileOpen, setMobileOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-    const { openTabs, activeTabKey, setActiveTab, removeTab } = useTabContext();
+    const { openTabs, activeTabKey, setActiveTab, removeTab, addTab } = useTabContext();
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-    const { username, displayName, email, logout, reloadUserInfo } = useAuth();
+    const { username, displayName, email, logout, reloadUserInfo, hasPermission, isPermissionLoaded } = useAuth();
     const [profileOpen, setProfileOpen] = useState(false);
     const [passwordOpen, setPasswordOpen] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -74,6 +75,29 @@ export const DesktopTabLayout: React.FC = () => {
     useEffect(() => {
         localStorage.setItem(sidebarStorageKey, JSON.stringify(sidebarCollapsed));
     }, [sidebarCollapsed]);
+
+    useEffect(() => {
+        if (!isPermissionLoaded || !hasPermission('module:dashboard_overview:view')) {
+            return;
+        }
+        if (openTabs.some((tab) => tab.key === '/dashboard')) {
+            if (!activeTabKey) {
+                setActiveTab('/dashboard');
+            }
+            return;
+        }
+        const routeConfig = getRouteConfig('/dashboard');
+        if (!routeConfig) {
+            return;
+        }
+        const Component = routeConfig.component;
+        addTab({
+            key: '/dashboard',
+            title: routeConfig.title,
+            path: '/dashboard',
+            component: <Component />,
+        });
+    }, [activeTabKey, addTab, hasPermission, isPermissionLoaded, openTabs, setActiveTab]);
 
     // 格式化日期时间显示
     const formatDateTime = (date: Date) => {
@@ -375,19 +399,21 @@ export const DesktopTabLayout: React.FC = () => {
                                             }}
                                         >
                                             <span>{tab.title}</span>
-                                            <IconButton
-                                                component="span"
-                                                size="small"
-                                                onClick={(e) => handleTabClose(e, tab.key)}
-                                                sx={{
-                                                    padding: '2px',
-                                                    '&:hover': {
-                                                        bgcolor: 'action.hover',
-                                                    },
-                                                }}
-                                            >
-                                                <CloseIcon fontSize="small" />
-                                            </IconButton>
+                                            {!PINNED_TAB_PATHS.includes(tab.key) && (
+                                                <IconButton
+                                                    component="span"
+                                                    size="small"
+                                                    onClick={(e) => handleTabClose(e, tab.key)}
+                                                    sx={{
+                                                        padding: '2px',
+                                                        '&:hover': {
+                                                            bgcolor: 'action.hover',
+                                                        },
+                                                    }}
+                                                >
+                                                    <CloseIcon fontSize="small" />
+                                                </IconButton>
+                                            )}
                                         </Box>
                                     }
                                 />
@@ -408,7 +434,15 @@ export const DesktopTabLayout: React.FC = () => {
                 )}
 
                 {/* 页签内容区 */}
-                <Box sx={{ flexGrow: 1, p: 3, overflow: 'auto' }}>
+                <Box
+                    sx={{
+                        flexGrow: 1,
+                        p: activeTabKey === '/dashboard' ? 0 : 3,
+                        overflow: activeTabKey === '/dashboard' ? 'hidden' : 'auto',
+                        minHeight: 0,
+                        display: activeTabKey === '/dashboard' ? 'flex' : 'block',
+                    }}
+                >
                     {openTabs.length === 0 ? (
                         <Box
                             sx={{
@@ -428,7 +462,11 @@ export const DesktopTabLayout: React.FC = () => {
                             <Box
                                 key={tab.key}
                                 sx={{
-                                    display: activeTabKey === tab.key ? 'block' : 'none',
+                                    display: activeTabKey === tab.key ? 'flex' : 'none',
+                                    flexDirection: 'column',
+                                    height: tab.key === '/dashboard' ? '100%' : 'auto',
+                                    minHeight: 0,
+                                    width: '100%',
                                 }}
                             >
                                 {tab.component}

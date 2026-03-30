@@ -21,6 +21,7 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import SecuritySetupPage from './pages/SecuritySetupPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import PlaceholderPage from './components/PlaceholderPage';
+import DashboardPage from './pages/DashboardPage';
 import GridAgencyPricePage from './pages/GridAgencyPricePage';
 import TouRulesPage from './pages/TouRulesPage';
 import RetailPackagePage from './pages/RetailPackagePage';
@@ -69,10 +70,10 @@ const ResponsiveLayout: React.FC = () => {
             <Routes>
                 <Route path="/" element={<MobileSimpleLayout />}>
                     {/* 默认页 */}
-                    <Route index element={<LoadAnalysisPage />} />
+                    <Route index element={<DashboardPage />} />
 
                     {/* 菜单路由 */}
-                    <Route path="dashboard" element={<PlaceholderPage />} />
+                    <Route path="dashboard" element={<DashboardPage />} />
 
                     {/* 客户管理 */}
                     <Route path="customer/profiles" element={<CustomerManagementPage />} />
