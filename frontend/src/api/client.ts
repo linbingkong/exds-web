@@ -5,6 +5,7 @@ import {
     hasAllPermissions,
     normalizeRequestPath,
 } from '../auth/permissionPrecheck';
+import { getDeviceFingerprint } from '../auth/deviceFingerprint';
 
 const apiClient = axios.create({
     baseURL: process.env.REACT_APP_API_BASE_URL || '',
@@ -109,6 +110,7 @@ export const login = (username: string, password: string, force = false) => {
         params: force ? { force: true } : undefined,
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Device-Fingerprint': getDeviceFingerprint(),
         },
     });
 };

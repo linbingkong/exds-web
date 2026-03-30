@@ -22,6 +22,7 @@ AUTH_ONLY_WRITE_ENDPOINTS = {
     ("POST", "/security/change-password"),
     ("POST", "/security/bind-email"),
     ("POST", "/security/verify-email"),
+    ("POST", "/security/send-login-email-code"),
     ("POST", "/security/complete"),
 }
 

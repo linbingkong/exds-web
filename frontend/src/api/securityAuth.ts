@@ -5,6 +5,7 @@ export interface SecurityStatus {
     display_name?: string;
     email?: string;
     email_verified: boolean;
+    email_mfa_enabled?: boolean;
     required_actions: string[];
 }
 
@@ -41,6 +42,13 @@ export async function verifySecurityEmail(challengeToken: string, code: string):
     const res = await apiClient.post<SecurityStatus & { message: string }>('/api/v1/auth/security/verify-email', {
         challenge_token: challengeToken,
         code,
+    });
+    return res.data;
+}
+
+export async function resendLoginEmailCode(challengeToken: string): Promise<SecurityStatus & { message: string }> {
+    const res = await apiClient.post<SecurityStatus & { message: string }>('/api/v1/auth/security/send-login-email-code', {
+        challenge_token: challengeToken,
     });
     return res.data;
 }

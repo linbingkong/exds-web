@@ -25,6 +25,7 @@ import {
     changeRequiredPassword,
     completeSecuritySetup,
     getSecurityStatus,
+    resendLoginEmailCode,
     verifySecurityEmail,
     type SecurityStatus,
 } from '../api/securityAuth';
@@ -51,6 +52,7 @@ const SecuritySetupPage: React.FC = () => {
         { key: 'CHANGE_PASSWORD', label: '修改密码' },
         { key: 'BIND_EMAIL', label: '绑定邮箱' },
         { key: 'VERIFY_EMAIL', label: '验证邮箱' },
+        { key: 'LOGIN_EMAIL_VERIFY', label: '新设备验证' },
     ]), []);
 
     const activeStep = useMemo(() => {
@@ -206,7 +208,7 @@ const SecuritySetupPage: React.FC = () => {
                     <Box>
                         <Typography variant="h5">首次登录安全设置</Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                            请先完成必做安全动作，完成后系统才会签发正式登录会话。
+                            请先完成当前登录所需的安全校验，完成后系统才会签发正式登录会话。
                         </Typography>
                     </Box>
 
@@ -292,6 +294,49 @@ const SecuritySetupPage: React.FC = () => {
                     {!status?.required_actions.includes('CHANGE_PASSWORD')
                         && !status?.required_actions.includes('BIND_EMAIL')
                         && !status?.required_actions.includes('VERIFY_EMAIL')
+                        && status?.required_actions.includes('LOGIN_EMAIL_VERIFY') && (
+                        <Stack spacing={2}>
+                            <Typography variant="subtitle1">3. 新设备邮件验证</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                当前登录设备尚未被信任，请输入发送到绑定邮箱的 6 位验证码完成校验。
+                            </Typography>
+                            <TextField
+                                label="邮箱验证码"
+                                value={code}
+                                onChange={(e) => setCode(e.target.value)}
+                                fullWidth
+                            />
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                                <Button
+                                    variant="outlined"
+                                    onClick={async () => {
+                                        if (!challengeToken) return;
+                                        setSaving(true);
+                                        try {
+                                            const result = await resendLoginEmailCode(challengeToken);
+                                            applyStatus(result, result.message);
+                                        } catch (err) {
+                                            const detail = err instanceof AxiosError ? err.response?.data?.detail : '';
+                                            setError(typeof detail === 'string' ? detail : '验证码发送失败');
+                                        } finally {
+                                            setSaving(false);
+                                        }
+                                    }}
+                                    disabled={saving}
+                                >
+                                    重新发送验证码
+                                </Button>
+                                <Button variant="contained" onClick={handleVerifyCode} disabled={saving}>
+                                    验证当前设备
+                                </Button>
+                            </Stack>
+                        </Stack>
+                    )}
+
+                    {!status?.required_actions.includes('CHANGE_PASSWORD')
+                        && !status?.required_actions.includes('BIND_EMAIL')
+                        && !status?.required_actions.includes('VERIFY_EMAIL')
+                        && !status?.required_actions.includes('LOGIN_EMAIL_VERIFY')
                         && (
                             <Alert severity="success">必做安全动作已全部完成，可以进入系统。</Alert>
                         )}

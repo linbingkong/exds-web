@@ -67,6 +67,7 @@ else:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(get_config('JWT', 'access_token_expire_minutes', default_value='180'))
 SECURITY_CHALLENGE_EXPIRE_MINUTES = int(get_config('AUTH', 'security_challenge_expire_minutes', default_value='30'))
+TRUSTED_DEVICE_DAYS = int(get_config('AUTH', 'trusted_device_days', default_value='30'))
 
 # 无操作空闲超时（分钟），从配置读取，默认 30 分钟
 IDLE_TIMEOUT_MINUTES = int(get_config('AUTH', 'idle_timeout_minutes', default_value='15'))
@@ -214,6 +215,9 @@ def ensure_auth_security_indexes():
     db.auth_security_challenges.create_index([("expires_at", 1)])
     db.auth_email_challenges.create_index([("challenge_id", 1)], unique=True)
     db.auth_email_challenges.create_index([("username", 1), ("email", 1), ("used_at", 1), ("expire_at", -1)])
+    db.auth_trusted_devices.create_index([("username", 1), ("device_fingerprint", 1)], unique=True)
+    db.auth_trusted_devices.create_index([("username", 1), ("is_active", 1), ("last_seen_at", -1)])
+    db.auth_trusted_devices.create_index([("trust_expire_at", 1)])
 
 
 def _challenge_now() -> datetime:
@@ -225,6 +229,9 @@ def create_security_challenge(
     required_actions: List[str],
     login_ip: Optional[str] = None,
     login_city: Optional[str] = None,
+    email_mfa_required: bool = False,
+    device_fingerprint: Optional[str] = None,
+    device_name: Optional[str] = None,
 ) -> str:
     ensure_auth_security_indexes()
     now = _challenge_now()
@@ -239,6 +246,10 @@ def create_security_challenge(
         "username": username,
         "required_actions": required_actions,
         "status": "active",
+        "email_mfa_required": email_mfa_required,
+        "email_mfa_verified": False,
+        "device_fingerprint": device_fingerprint,
+        "device_name": device_name,
         "login_ip": login_ip,
         "login_city": login_city,
         "created_at": now.isoformat(),
@@ -276,6 +287,103 @@ def close_security_challenge(cid: str, status_value: str = "completed"):
     db.auth_security_challenges.update_one(
         {"cid": cid},
         {"$set": {"status": status_value, "updated_at": now, "invalidated_at": now}},
+    )
+
+
+def normalize_device_fingerprint(value: Optional[str]) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) > 256:
+        text = text[:256]
+    return text
+
+
+def is_trusted_device(username: str, device_fingerprint: Optional[str]) -> bool:
+    fingerprint = normalize_device_fingerprint(device_fingerprint)
+    if not username or not fingerprint:
+        return False
+
+    doc = db.auth_trusted_devices.find_one(
+        {"username": username, "device_fingerprint": fingerprint, "is_active": True},
+        {"trust_expire_at": 1},
+    )
+    if not doc:
+        return False
+
+    expire_dt = _parse_iso_datetime(doc.get("trust_expire_at"))
+    if expire_dt and datetime.now() > expire_dt:
+        db.auth_trusted_devices.update_one(
+            {"username": username, "device_fingerprint": fingerprint},
+            {"$set": {"is_active": False, "updated_at": datetime.now().isoformat()}},
+        )
+        return False
+    return True
+
+
+def has_active_trusted_device(username: str) -> bool:
+    if not username:
+        return False
+    now = datetime.now().isoformat()
+    doc = db.auth_trusted_devices.find_one(
+        {
+            "username": username,
+            "is_active": True,
+            "trust_expire_at": {"$gt": now},
+        },
+        {"_id": 1},
+    )
+    return bool(doc)
+
+
+def touch_trusted_device(
+    username: str,
+    device_fingerprint: Optional[str],
+    device_name: Optional[str] = None,
+) -> None:
+    fingerprint = normalize_device_fingerprint(device_fingerprint)
+    if not username or not fingerprint:
+        return
+    now = datetime.now().isoformat()
+    update_fields = {
+        "last_seen_at": now,
+        "updated_at": now,
+    }
+    if device_name:
+        update_fields["device_name"] = device_name
+    db.auth_trusted_devices.update_one(
+        {"username": username, "device_fingerprint": fingerprint},
+        {"$set": update_fields},
+    )
+
+
+def trust_device(
+    username: str,
+    device_fingerprint: Optional[str],
+    device_name: Optional[str] = None,
+    trust_days: Optional[int] = None,
+) -> None:
+    fingerprint = normalize_device_fingerprint(device_fingerprint)
+    if not username or not fingerprint:
+        return
+    ensure_auth_security_indexes()
+    now_dt = datetime.now()
+    now = now_dt.isoformat()
+    expire_dt = now_dt + timedelta(days=max(1, trust_days or TRUSTED_DEVICE_DAYS))
+    db.auth_trusted_devices.update_one(
+        {"username": username, "device_fingerprint": fingerprint},
+        {"$set": {
+            "username": username,
+            "device_fingerprint": fingerprint,
+            "device_name": device_name,
+            "last_seen_at": now,
+            "updated_at": now,
+            "trust_expire_at": expire_dt.isoformat(),
+            "is_active": True,
+        }, "$setOnInsert": {
+            "first_seen_at": now,
+        }},
+        upsert=True,
     )
 
 

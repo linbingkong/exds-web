@@ -55,6 +55,7 @@ class CreateUserRequest(BaseModel):
     display_name: Optional[str] = None
     email: Optional[str] = None
     require_email_verification: bool = True
+    email_mfa_enabled: bool = False
     roles: List[str] = []
 
 class UpdateUserRolesRequest(BaseModel):
@@ -62,6 +63,10 @@ class UpdateUserRolesRequest(BaseModel):
 
 class UpdateUserStatusRequest(BaseModel):
     is_active: bool
+
+
+class UpdateUserEmailMfaRequest(BaseModel):
+    email_mfa_enabled: bool
 
 class ResetPasswordRequest(BaseModel):
     new_password: Optional[str] = None

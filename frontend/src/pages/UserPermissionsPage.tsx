@@ -34,6 +34,7 @@ import {
   resetUserPassword,
   updateRole,
   updateRolePermissions,
+  updateUserEmailMfa,
   updateUserRoles,
   updateUserStatus,
 } from '../api/authManagement';
@@ -55,6 +56,7 @@ type UserDraft = {
   display_name: string;
   email: string;
   require_email_verification: boolean;
+  email_mfa_enabled: boolean;
   roles: string[];
 };
 
@@ -99,6 +101,7 @@ const UserPermissionsPage: React.FC = () => {
     display_name: '',
     email: '',
     require_email_verification: true,
+    email_mfa_enabled: false,
     roles: [],
   });
   const [assignRoles, setAssignRoles] = useState<string[]>([]);
@@ -307,6 +310,7 @@ const UserPermissionsPage: React.FC = () => {
         username: userDraft.username.trim(),
         password: userDraft.password.trim() || undefined,
         email: userDraft.email.trim() || undefined,
+        email_mfa_enabled: userDraft.email_mfa_enabled,
         display_name: userDraft.display_name.trim() || undefined
       });
       setMessage('用户创建成功');
@@ -317,6 +321,7 @@ const UserPermissionsPage: React.FC = () => {
         display_name: '',
         email: '',
         require_email_verification: true,
+        email_mfa_enabled: false,
         roles: [],
       });
       await loadUsers();
@@ -417,6 +422,19 @@ const UserPermissionsPage: React.FC = () => {
       await loadUsers();
     } catch (e: any) {
       setError(e?.response?.data?.detail || e?.message || '更新用户状态失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onToggleUserEmailMfa = async (user: AuthUser) => {
+    setSaving(true);
+    try {
+      await updateUserEmailMfa(user.username, !user.email_mfa_enabled);
+      setMessage('新设备邮件验证状态已更新');
+      await loadUsers();
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || '更新新设备邮件验证状态失败');
     } finally {
       setSaving(false);
     }
@@ -527,7 +545,7 @@ const UserPermissionsPage: React.FC = () => {
                         <Typography variant="caption" color="text.secondary">{u.display_name || '-'}</Typography>
                         {!isMobile && (
                           <Typography variant="caption" color="text.secondary" display="block">
-                            {u.email ? `${u.email} · ${u.email_verified ? '邮箱已验证' : '邮箱待验证'}` : '未绑定邮箱'}
+                            {u.email ? `${u.email} · ${u.email_verified ? '邮箱已验证' : '邮箱待验证'} · ${u.email_mfa_enabled ? '新设备验证已开启' : '新设备验证已关闭'}` : '未绑定邮箱'}
                           </Typography>
                         )}
                         {isMobile && (
@@ -540,6 +558,7 @@ const UserPermissionsPage: React.FC = () => {
                             {[
                               (u.roles || []).join(', ') || '-',
                               u.email ? (u.email_verified ? '邮箱已验证' : '邮箱待验证') : '未绑定邮箱',
+                              u.email_mfa_enabled ? '新设备验证已开启' : '新设备验证已关闭',
                             ].join(' · ')}
                           </Typography>
                         )}
@@ -747,6 +766,18 @@ const UserPermissionsPage: React.FC = () => {
             <Typography variant="caption" color="text.secondary">
               默认选中。若未填写邮箱，后续安全流程仍需先绑定邮箱。
             </Typography>
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={userDraft.email_mfa_enabled}
+                  onChange={(e) => setUserDraft((s) => ({ ...s, email_mfa_enabled: e.target.checked }))}
+                />
+              )}
+              label="开启新设备邮件验证码"
+            />
+            <Typography variant="caption" color="text.secondary">
+              仅当用户已绑定并验证邮箱后才会在新设备登录时生效。
+            </Typography>
             <FormControl fullWidth>
               <InputLabel id="create-user-role-select">角色（单选）</InputLabel>
               <Select
@@ -827,6 +858,16 @@ const UserPermissionsPage: React.FC = () => {
           }}
         >
           分配角色
+        </MenuItem>
+        <MenuItem
+          disabled={!canManage || saving || !userActionTarget}
+          onClick={() => {
+            if (!userActionTarget) return;
+            void onToggleUserEmailMfa(userActionTarget);
+            closeUserActionMenu();
+          }}
+        >
+          {userActionTarget?.email_mfa_enabled ? '关闭新设备邮件验证' : '开启新设备邮件验证'}
         </MenuItem>
         <MenuItem
           disabled={!canManage || saving || !userActionTarget}

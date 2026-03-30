@@ -22,11 +22,11 @@ from webapp.tools.security import (
     ACCESS_TOKEN_EXPIRE_MINUTES, cleanup_stale_active_sessions, close_security_challenge,
     create_access_token, create_auth_session, ensure_auth_security_indexes, enforce_single_active_session,
     find_active_session, get_required_security_actions, get_security_challenge_by_token,
-    hash_verification_code, kick_active_sessions,
+    hash_verification_code, kick_active_sessions, trust_device,
 )
 from webapp.models.auth import (
     CurrentUserContext, UserInfo, Permission, Role,
-    CreateUserRequest, UpdateUserRolesRequest, UpdateUserStatusRequest,
+    CreateUserRequest, UpdateUserRolesRequest, UpdateUserStatusRequest, UpdateUserEmailMfaRequest,
     ResetPasswordRequest, CreateRoleRequest, UpdateRoleRequest,
     UpdateRolePermissionsRequest, UpdateMyProfileRequest, ChangeMyPasswordRequest,
     ChallengeTokenRequest, SecurityBindEmailRequest, SecurityChangePasswordRequest,
@@ -49,6 +49,8 @@ EMAIL_CODE_MAX_VERIFY_ATTEMPTS = int(get_config("AUTH", "email_code_max_verify_a
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_SCENE_FIRST_LOGIN = "first_login_verify_email"
 EMAIL_SCENE_FORGOT_PASSWORD = "forgot_password"
+EMAIL_SCENE_LOGIN_NEW_DEVICE = "login_new_device"
+SECURITY_ACTION_LOGIN_EMAIL_VERIFY = "LOGIN_EMAIL_VERIFY"
 
 
 def _get_default_user_password() -> str:
@@ -92,6 +94,7 @@ def _build_security_status(user_doc: dict, required_actions: List[str]) -> dict:
         "display_name": user_doc.get("display_name"),
         "email": user_doc.get("email"),
         "email_verified": bool(user_doc.get("email_verified")),
+        "email_mfa_enabled": bool(user_doc.get("email_mfa_enabled")),
         "required_actions": required_actions,
     }
 
@@ -103,6 +106,13 @@ def _load_challenge_user(challenge_token: str) -> tuple[dict, dict]:
         close_security_challenge(challenge_doc.get("cid"), status_value="failed")
         raise HTTPException(status_code=404, detail="用户不存在")
     return challenge_doc, user_doc
+
+
+def _build_effective_security_actions(user_doc: dict, challenge_doc: Optional[dict] = None) -> List[str]:
+    actions = list(get_required_security_actions(user_doc))
+    if challenge_doc and bool(challenge_doc.get("email_mfa_required")) and not bool(challenge_doc.get("email_mfa_verified")):
+        actions.append(SECURITY_ACTION_LOGIN_EMAIL_VERIFY)
+    return actions
 
 
 def _validate_email_address(email: str) -> str:
@@ -213,6 +223,18 @@ def _issue_email_verification_code(username: str, email: str, request_ip: str, s
         raise HTTPException(status_code=503, detail="验证码发送失败，请联系管理员检查邮件配置")
 
     return {"email": email, "expire_at": expire_at.isoformat(), "send_count": send_count, "scene": scene}
+
+
+def _issue_login_email_mfa_code(challenge_doc: dict, user_doc: dict, request_ip: str) -> dict:
+    email = _validate_email_address(str(user_doc.get("email") or ""))
+    if not bool(user_doc.get("email_verified")):
+        raise HTTPException(status_code=400, detail="当前用户邮箱未验证，无法启用新设备邮件验证")
+    return _issue_email_verification_code(
+        username=user_doc["username"],
+        email=email,
+        request_ip=request_ip,
+        scene=EMAIL_SCENE_LOGIN_NEW_DEVICE,
+    )
 
 
 def _verify_email_code(username: str, email: str, code: str, scene: str = EMAIL_SCENE_FIRST_LOGIN) -> None:
@@ -444,8 +466,8 @@ async def forgot_password_reset(body: ForgotPasswordResetRequest, request: Reque
 
 @public_router.post("/security/status", summary="查询首登安全动作状态")
 async def get_security_status(body: ChallengeTokenRequest):
-    _, user_doc = _load_challenge_user(body.challenge_token)
-    required_actions = get_required_security_actions(user_doc)
+    challenge_doc, user_doc = _load_challenge_user(body.challenge_token)
+    required_actions = _build_effective_security_actions(user_doc, challenge_doc)
     return _build_security_status(user_doc, required_actions)
 
 
@@ -470,7 +492,7 @@ async def change_password_by_required_action(body: SecurityChangePasswordRequest
         }},
     )
     updated_user = db.users.find_one({"username": user_doc["username"]}) or user_doc
-    required_actions = get_required_security_actions(updated_user)
+    required_actions = _build_effective_security_actions(updated_user, challenge_doc)
     _write_audit_log(
         "AUTH_PASSWORD_CHANGED_BY_REQUIRED_ACTION",
         updated_user["username"],
@@ -501,7 +523,7 @@ async def bind_email_by_required_action(body: SecurityBindEmailRequest, request:
     )
     send_result = _issue_email_verification_code(user_doc["username"], email, request_ip)
     updated_user = db.users.find_one({"username": user_doc["username"]}) or user_doc
-    required_actions = get_required_security_actions(updated_user)
+    required_actions = _build_effective_security_actions(updated_user, challenge_doc)
     _write_audit_log(
         "AUTH_EMAIL_BIND_SENT",
         updated_user["username"],
@@ -528,8 +550,27 @@ async def verify_email_by_required_action(body: SecurityVerifyEmailRequest):
     if not code:
         raise HTTPException(status_code=400, detail="请输入邮箱验证码")
 
-    _verify_email_code(user_doc["username"], email, code)
     now = datetime.now().isoformat()
+    if bool(challenge_doc.get("email_mfa_required")) and not bool(challenge_doc.get("email_mfa_verified")):
+        _verify_email_code(user_doc["username"], email, code, scene=EMAIL_SCENE_LOGIN_NEW_DEVICE)
+        db.auth_security_challenges.update_one(
+            {"cid": challenge_doc.get("cid")},
+            {"$set": {"email_mfa_verified": True, "email_mfa_verified_at": now, "updated_at": now}},
+        )
+        _write_audit_log(
+            "AUTH_LOGIN_EMAIL_MFA_VERIFIED",
+            user_doc["username"],
+            user_doc["username"],
+            {"email": email, "challenge_id": challenge_doc.get("cid")},
+        )
+        refreshed_challenge, updated_user = _load_challenge_user(body.challenge_token)
+        required_actions = _build_effective_security_actions(updated_user, refreshed_challenge)
+        return {
+            "message": "新设备邮件验证码校验成功",
+            **_build_security_status(updated_user, required_actions),
+        }
+
+    _verify_email_code(user_doc["username"], email, code)
     db.users.update_one(
         {"username": user_doc["username"]},
         {"$set": {
@@ -538,7 +579,7 @@ async def verify_email_by_required_action(body: SecurityVerifyEmailRequest):
         }},
     )
     updated_user = db.users.find_one({"username": user_doc["username"]}) or user_doc
-    required_actions = get_required_security_actions(updated_user)
+    required_actions = _build_effective_security_actions(updated_user, challenge_doc)
     _write_audit_log(
         "AUTH_EMAIL_VERIFIED",
         updated_user["username"],
@@ -551,13 +592,39 @@ async def verify_email_by_required_action(body: SecurityVerifyEmailRequest):
     }
 
 
+@public_router.post("/security/send-login-email-code", summary="登录安全流程-重发新设备邮件验证码")
+async def resend_login_email_code(body: ChallengeTokenRequest, request: Request):
+    challenge_doc, user_doc = _load_challenge_user(body.challenge_token)
+    if not bool(challenge_doc.get("email_mfa_required")):
+        raise HTTPException(status_code=400, detail="当前安全流程不需要新设备邮件验证")
+    if bool(challenge_doc.get("email_mfa_verified")):
+        raise HTTPException(status_code=400, detail="当前挑战已完成新设备邮件验证")
+
+    send_result = _issue_login_email_mfa_code(challenge_doc, user_doc, _get_real_ip(request))
+    _write_audit_log(
+        "AUTH_LOGIN_EMAIL_MFA_CODE_SENT",
+        user_doc["username"],
+        user_doc["username"],
+        {
+            "challenge_id": challenge_doc.get("cid"),
+            "expire_at": send_result.get("expire_at"),
+            "send_count": send_result.get("send_count"),
+            "request_ip": _get_real_ip(request),
+        },
+    )
+    return {
+        "message": "验证码已重新发送，请查收邮箱",
+        **_build_security_status(user_doc, _build_effective_security_actions(user_doc, challenge_doc)),
+    }
+
+
 @public_router.post("/security/complete", summary="首登安全流程完成后签发正式登录会话")
 async def complete_required_actions(
     body: SecurityCompleteRequest,
     request: Request,
 ):
     challenge_doc, user_doc = _load_challenge_user(body.challenge_token)
-    required_actions = get_required_security_actions(user_doc)
+    required_actions = _build_effective_security_actions(user_doc, challenge_doc)
     if required_actions:
         raise HTTPException(status_code=400, detail={"message": "仍有未完成的安全动作", "required_actions": required_actions})
 
@@ -618,6 +685,12 @@ async def complete_required_actions(
         },
         "$unset": {"login_locked_until": "", "last_login_failed_at": ""}},
     )
+    if challenge_doc.get("device_fingerprint"):
+        trust_device(
+            user_doc["username"],
+            challenge_doc.get("device_fingerprint"),
+            device_name=challenge_doc.get("device_name"),
+        )
     enforce_single_active_session(user_doc["username"], sid)
     close_security_challenge(challenge_doc.get("cid"), status_value="completed")
     access_token = create_access_token(
@@ -786,6 +859,7 @@ async def create_user(
         "display_name": body.display_name,
         "email": normalized_email,
         "email_verified": False if body.require_email_verification else bool(normalized_email),
+        "email_mfa_enabled": bool(body.email_mfa_enabled),
         "roles": body.roles,
         "is_active": True,
         "must_change_password": True,
@@ -798,6 +872,7 @@ async def create_user(
         "roles": body.roles,
         "used_default_password": not bool((body.password or "").strip()),
         "require_email_verification": body.require_email_verification,
+        "email_mfa_enabled": bool(body.email_mfa_enabled),
     })
     return {"message": "用户创建成功", "username": body.username}
 
@@ -834,6 +909,36 @@ async def update_user_status(
     action = "USER_ENABLED" if body.is_active else "USER_DISABLED"
     _write_audit_log(action, ctx.username, username)
     return {"message": "状态更新成功"}
+
+
+@router.put("/users/{username}/email-mfa-toggle", summary="启用/关闭新设备邮件验证")
+async def update_user_email_mfa(
+    username: str,
+    body: UpdateUserEmailMfaRequest,
+    ctx: CurrentUserContext = Depends(require_permission("system:auth:manage")),
+):
+    user = db.users.find_one({"username": username}, {"email": 1, "email_verified": 1, "email_mfa_enabled": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if body.email_mfa_enabled:
+        email = str(user.get("email") or "").strip()
+        if not email:
+            raise HTTPException(status_code=400, detail="用户未绑定邮箱，无法启用新设备邮件验证")
+        if not bool(user.get("email_verified")):
+            raise HTTPException(status_code=400, detail="用户邮箱尚未验证，无法启用新设备邮件验证")
+
+    db.users.update_one(
+        {"username": username},
+        {"$set": {"email_mfa_enabled": body.email_mfa_enabled, "updated_at": datetime.now().isoformat()}},
+    )
+    _write_audit_log(
+        "USER_EMAIL_MFA_UPDATED",
+        ctx.username,
+        username,
+        {"before": bool(user.get("email_mfa_enabled")), "after": body.email_mfa_enabled},
+    )
+    return {"message": "新设备邮件验证状态已更新"}
 
 
 @router.put("/users/{username}/password/reset", summary="重置用户密码")

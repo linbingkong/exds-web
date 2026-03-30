@@ -37,6 +37,7 @@ export interface AuthUser {
     display_name?: string;
     email?: string;
     email_verified?: boolean;
+    email_mfa_enabled?: boolean;
     roles: string[];
     is_active?: boolean;
     must_change_password?: boolean;
@@ -121,6 +122,7 @@ export async function createUser(payload: {
     display_name?: string;
     email?: string;
     require_email_verification?: boolean;
+    email_mfa_enabled?: boolean;
     roles: string[];
 }): Promise<void> {
     await apiClient.post('/api/v1/auth/users', payload);
@@ -132,6 +134,10 @@ export async function updateUserRoles(username: string, roles: string[]): Promis
 
 export async function updateUserStatus(username: string, isActive: boolean): Promise<void> {
     await apiClient.put(`/api/v1/auth/users/${username}/status`, { is_active: isActive });
+}
+
+export async function updateUserEmailMfa(username: string, emailMfaEnabled: boolean): Promise<void> {
+    await apiClient.put(`/api/v1/auth/users/${username}/email-mfa-toggle`, { email_mfa_enabled: emailMfaEnabled });
 }
 
 export async function deleteUser(username: string): Promise<void> {
