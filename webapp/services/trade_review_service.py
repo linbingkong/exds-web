@@ -37,7 +37,7 @@ from webapp.models.trade_review import (
 from webapp.services.contract_service import ContractService
 from webapp.services.load_forecast_service import LoadForecastService
 from webapp.services.load_query_service import LoadQueryService
-from webapp.services.spot_price_service import get_spot_prices, resample_to_48
+from webapp.services.spot_price_service import get_spot_price_curve_48, resample_to_48
 from webapp.services.tou_service import get_tou_timeline_by_date
 
 logger = logging.getLogger(__name__)
@@ -379,31 +379,28 @@ class TradeReviewService:
         use_econ_price = target_date >= "2026-02-01"
         settlement_price_type = "econ" if use_econ_price else "physical"
 
-        rt_curve = get_spot_prices(
+        rt_curve = get_spot_price_curve_48(
             self.db,
             target_date,
-            data_type="real_time",
-            resolution=48,
-            include_volume=False,
+            "real_time_spot_price",
+            price_field="arithmetic_avg_clearing_price",
         )
-        da_curve = get_spot_prices(
+        da_curve = get_spot_price_curve_48(
             self.db,
             target_date,
-            data_type="day_ahead",
-            resolution=48,
-            include_volume=False,
+            "day_ahead_spot_price",
+            price_field="avg_clearing_price",
         )
-        da_econ_curve = get_spot_prices(
+        da_econ_curve = get_spot_price_curve_48(
             self.db,
             target_date,
-            data_type="day_ahead_econ",
-            resolution=48,
-            include_volume=False,
+            "day_ahead_econ_price",
+            price_field="clearing_price",
         )
 
-        rt_map = {point.period: point.price for point in rt_curve.points}
-        da_map = {point.period: point.price for point in da_curve.points}
-        da_econ_map = {point.period: point.price for point in da_econ_curve.points}
+        rt_map = {period: value for period, value in enumerate(rt_curve[:48], start=1)}
+        da_map = {period: value for period, value in enumerate(da_curve[:48], start=1)}
+        da_econ_map = {period: value for period, value in enumerate(da_econ_curve[:48], start=1)}
         declared_map = self._load_day_ahead_declared_volume_map(target_date)
         actual_load_map = self._load_aggregate_actual_curve(target_date)
         forecast_gap_min_map = self._load_forecast_curve_from_service(target_date)
@@ -826,19 +823,18 @@ class TradeReviewService:
 
     def _load_spot_prices(self, delivery_date: str) -> Dict[int, Optional[float]]:
         try:
-            spot_curve = get_spot_prices(
+            spot_curve = get_spot_price_curve_48(
                 self.db,
                 delivery_date,
-                data_type="real_time",
-                resolution=48,
-                include_volume=False,
+                "real_time_spot_price",
+                price_field="arithmetic_avg_clearing_price",
             )
         except Exception as exc:
             logger.warning("加载现货价格失败: %s", exc)
             return {}
         return {
-            point.period: round(point.price, 3) if point.price is not None else None
-            for point in spot_curve.points
+            period: round(price, 3) if price is not None else None
+            for period, price in enumerate(spot_curve[:48], start=1)
         }
 
     def _load_target_load_curve(self, delivery_date: str) -> Tuple[Dict[int, float], Optional[str]]:

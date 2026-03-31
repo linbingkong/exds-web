@@ -128,6 +128,24 @@ def _to_96_points(docs: List[dict], include_volume: bool, price_field: str = "av
 
 def _to_48_points(docs: List[dict], include_volume: bool, price_field: str = "avg_clearing_price") -> List[SpotDataPoint]:
     """转换为48点数据（30分钟间隔）"""
+    if len(docs) == 96:
+        points = []
+        for idx in range(48):
+            pair = docs[idx * 2: idx * 2 + 2]
+            prices = [doc.get(price_field) for doc in pair if doc.get(price_field) is not None]
+            volumes = [doc.get("total_clearing_power") for doc in pair if doc.get("total_clearing_power") is not None]
+            total_minutes = (idx + 1) * 30
+            hour = total_minutes // 60
+            minute = total_minutes % 60
+            time_str = f"{hour:02d}:{minute:02d}"
+            points.append(SpotDataPoint(
+                period=idx + 1,
+                time_str=time_str,
+                price=round(sum(prices) / len(prices), 2) if prices else None,
+                volume=round(sum(volumes), 2) if include_volume and volumes else None,
+            ))
+        return points
+
     # 按30分钟时段分组
     period_data: Dict[int, Dict[str, List[float]]] = {}
     
@@ -180,6 +198,22 @@ def _to_48_points(docs: List[dict], include_volume: bool, price_field: str = "av
 
 def _to_24_points(docs: List[dict], include_volume: bool, price_field: str = "avg_clearing_price") -> List[SpotDataPoint]:
     """转换为24点数据（60分钟间隔）"""
+    if len(docs) == 96:
+        points = []
+        for idx in range(24):
+            bucket = docs[idx * 4: idx * 4 + 4]
+            prices = [doc.get(price_field) for doc in bucket if doc.get(price_field) is not None]
+            volumes = [doc.get("total_clearing_power") for doc in bucket if doc.get("total_clearing_power") is not None]
+            hour = idx + 1
+            time_str = f"{hour:02d}:00"
+            points.append(SpotDataPoint(
+                period=idx + 1,
+                time_str=time_str,
+                price=round(sum(prices) / len(prices), 2) if prices else None,
+                volume=round(sum(volumes), 2) if include_volume and volumes else None,
+            ))
+        return points
+
     # 按小时分组
     period_data: Dict[int, Dict[str, List[float]]] = {}
     
