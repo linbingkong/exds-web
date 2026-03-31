@@ -247,6 +247,12 @@ export const DayAheadTradeReviewPage: React.FC = () => {
     const markerRows = useMemo(() => {
         return chartRows.filter((row) => row.declared_mwh > 0 && row[markerField] !== null);
     }, [chartRows, markerField]);
+    const hasPublishedSettlementPrices = useMemo(() => {
+        return chartRows.some((row) => row.price_rt !== null && row[markerField] !== null);
+    }, [chartRows, markerField]);
+    const hasDeclaredTrades = useMemo(() => {
+        return chartRows.some((row) => row.declared_mwh > 0);
+    }, [chartRows]);
 
     const handleShiftDate = (days: number) => {
         if (!selectedDate) return;
@@ -310,6 +316,8 @@ export const DayAheadTradeReviewPage: React.FC = () => {
                                 ref={chartRef}
                                 sx={{
                                     height: { xs: 460, sm: 540 },
+                                    display: 'flex',
+                                    flexDirection: 'column',
                                     position: 'relative',
                                     backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
                                     p: isFullscreen ? 2 : 0,
@@ -328,12 +336,12 @@ export const DayAheadTradeReviewPage: React.FC = () => {
                                 <FullscreenTitle />
                                 <NavigationButtons />
 
-                                <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 0.5 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, maxWidth: '100%', overflowX: 'auto', overflowY: 'hidden', flexWrap: { xs: 'nowrap', md: 'wrap' }, pb: 0.5, pr: { xs: 5, sm: 0 }, flex: '0 0 auto' }}>
                                     {(Object.keys(PRICE_SERIES_META) as PriceSeriesKey[]).map((key) => (
                                         <Box
                                             key={key}
                                             onClick={() => handleLegendClick({ dataKey: key } as any)}
-                                            sx={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+                                            sx={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none', flex: '0 0 auto' }}
                                         >
                                             <Checkbox
                                                 checked={seriesVisibility[key]}
@@ -351,8 +359,8 @@ export const DayAheadTradeReviewPage: React.FC = () => {
                                     ))}
                                 </Box>
 
-                                <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 1 }}>
-                                    <Box sx={{ height: '60%', minHeight: 0 }}>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: 1 }}>
+                                    <Box sx={{ flex: '3 1 0', minHeight: 0 }}>
                                         <ResponsiveContainer width="100%" height="100%">
                                             <ComposedChart data={chartRows} syncId="day-ahead-review" margin={{ top: 8, right: 20, left: 8, bottom: 4 }}>
                                                 {TouPeriodAreas}
@@ -375,7 +383,7 @@ export const DayAheadTradeReviewPage: React.FC = () => {
                                         </ResponsiveContainer>
                                     </Box>
 
-                                    <Box sx={{ height: '40%', minHeight: 0 }}>
+                                    <Box sx={{ flex: '2 1 0', minHeight: 0 }}>
                                         <ResponsiveContainer width="100%" height="100%">
                                             <ComposedChart data={chartRows} syncId="day-ahead-review" margin={{ top: 4, right: 20, left: 8, bottom: 12 }}>
                                                 <CartesianGrid strokeDasharray="3 3" />
@@ -413,12 +421,12 @@ export const DayAheadTradeReviewPage: React.FC = () => {
                                             </ComposedChart>
                                         </ResponsiveContainer>
                                     </Box>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, pt: 0.25 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pt: 0.25, maxWidth: '100%', overflowX: 'auto', overflowY: 'hidden', flexWrap: { xs: 'nowrap', md: 'wrap' }, pb: 0.5, flex: '0 0 auto' }}>
                                         {(Object.keys(VOLUME_SERIES_META) as VolumeSeriesKey[]).map((key) => (
                                             <Box
                                                 key={key}
                                                 onClick={() => handleVolumeLegendClick({ dataKey: key } as any)}
-                                                sx={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+                                                sx={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none', flex: '0 0 auto' }}
                                             >
                                                 <Checkbox
                                                     checked={volumeSeriesVisibility[key]}
@@ -461,6 +469,10 @@ export const DayAheadTradeReviewPage: React.FC = () => {
                                     >
                                         {formatNumber(data.execution_analysis_summary.total_profit_amount, 2)}元
                                     </Box>
+                                </Typography>
+                            ) : hasPublishedSettlementPrices && !hasDeclaredTrades ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    当前日期日前与实时价格已发布，但暂无日前申报交易，暂不展示当日盈亏汇总。
                                 </Typography>
                             ) : (
                                 <Typography variant="body2" color="text.secondary">

@@ -379,24 +379,24 @@ class TradeReviewService:
         use_econ_price = target_date >= "2026-02-01"
         settlement_price_type = "econ" if use_econ_price else "physical"
 
-        rt_curve = get_spot_price_curve_48(
+        rt_curve = self._normalize_optional_price_curve(get_spot_price_curve_48(
             self.db,
             target_date,
             "real_time_spot_price",
             price_field="arithmetic_avg_clearing_price",
-        )
-        da_curve = get_spot_price_curve_48(
+        ))
+        da_curve = self._normalize_optional_price_curve(get_spot_price_curve_48(
             self.db,
             target_date,
             "day_ahead_spot_price",
             price_field="avg_clearing_price",
-        )
-        da_econ_curve = get_spot_price_curve_48(
+        ))
+        da_econ_curve = self._normalize_optional_price_curve(get_spot_price_curve_48(
             self.db,
             target_date,
             "day_ahead_econ_price",
             price_field="clearing_price",
-        )
+        ))
 
         rt_map = {period: value for period, value in enumerate(rt_curve[:48], start=1)}
         da_map = {period: value for period, value in enumerate(da_curve[:48], start=1)}
@@ -463,6 +463,16 @@ class TradeReviewService:
             chart_rows=chart_rows,
             execution_analysis_summary=summary,
         )
+
+    def _normalize_optional_price_curve(self, values: List[float]) -> List[Optional[float]]:
+        normalized = [float(value) if value is not None else 0.0 for value in values[:48]]
+        if len(normalized) < 48:
+            normalized.extend([0.0] * (48 - len(normalized)))
+
+        # 价格未发布时，底层服务会返回全 0 向量；这里统一转成 None，避免前端画出 0 轴直线并参与收益计算。
+        if not any(abs(value) > 1e-9 for value in normalized):
+            return [None] * 48
+        return [round(value, 6) for value in normalized]
 
     def _load_day_ahead_declared_volume_map(self, target_date: str) -> Dict[int, float]:
         docs = list(
