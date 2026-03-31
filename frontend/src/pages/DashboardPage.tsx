@@ -983,8 +983,9 @@ export const DashboardPage: React.FC = () => {
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
-        p: 1,
-        pb: 2,
+        px: { xs: 0, sm: 1 },
+        pt: 0,
+        pb: { xs: 1, sm: 2 },
     } as const;
 
     const desktopLayoutSx = {
