@@ -28,7 +28,15 @@ class DashboardSnapshotService:
     def get_summary(self) -> Dict[str, Any]:
         snapshot = self.db[self.COLLECTION_NAME].find_one({"_id": self.SNAPSHOT_ID})
         if snapshot and snapshot.get("data"):
-            return self._to_summary_response(snapshot)
+            snapshot_data = snapshot.get("data") or {}
+            cached_settlement_month = (snapshot_data.get("settlement_kpi") or {}).get("month")
+            current_settlement_month = self.dashboard_service.get_settlement_display_month()
+            if cached_settlement_month == current_settlement_month:
+                return self._to_summary_response(snapshot)
+
+            logger.info("交易总览首页快照的售电收益月份已变化，立即刷新快照: %s -> %s", cached_settlement_month, current_settlement_month)
+            result = self.refresh_snapshot(force=True)
+            return result["summary"]
 
         logger.info("交易总览首页快照不存在，立即构建首份快照")
         result = self.refresh_snapshot(force=True)
@@ -78,6 +86,7 @@ class DashboardSnapshotService:
 
     def _build_summary_data(self) -> Dict[str, Any]:
         month = self.dashboard_service.get_current_month()
+        settlement_month = self.dashboard_service.get_settlement_display_month()
         now = datetime.now()
         end_date = now
         start_date = now - timedelta(days=29)
@@ -89,10 +98,10 @@ class DashboardSnapshotService:
 
         return {
             "month": month,
-            "settlement_kpi": self.dashboard_service.get_settlement_kpi(month),
-            "settlement_chart_monthly": self.dashboard_service.get_settlement_chart(month, "monthly"),
-            "settlement_chart_yearly": self.dashboard_service.get_settlement_chart(month, "yearly"),
-            "trade_summary": self.dashboard_service.get_trade_summary(month),
+            "settlement_kpi": self.dashboard_service.get_settlement_kpi(settlement_month),
+            "settlement_chart_monthly": self.dashboard_service.get_settlement_chart(settlement_month, "monthly"),
+            "settlement_chart_yearly": self.dashboard_service.get_settlement_chart(settlement_month, "yearly"),
+            "trade_summary": self.dashboard_service.get_trade_summary(settlement_month),
             "customer_overview": self.dashboard_service.get_customer_overview(now.year, now.month),
             "customer_profit_contribution": self.dashboard_service.get_customer_profit_contribution(now.year, now.month),
             "alerts": self.dashboard_service.get_alerts(8),

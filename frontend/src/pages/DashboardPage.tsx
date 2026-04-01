@@ -90,6 +90,13 @@ const formatWanYuan = (value?: number | null) => {
     return `${formatNumber(Number(value) / 10000, 2)} 万元`;
 };
 
+const formatMonthLabel = (month?: string | null) => {
+    if (!month) return '当月';
+    const parts = month.split('-');
+    if (parts.length !== 2) return month;
+    return `${Number(parts[1])}月`;
+};
+
 const getValueColor = (value?: number | null) => {
     if (value === null || value === undefined) return 'text.primary';
     return value >= 0 ? TRADE_POSITIVE : TRADE_NEGATIVE;
@@ -311,9 +318,10 @@ export const DashboardPage: React.FC = () => {
         [state.tradeSummary]
     );
 
+    const tradeReviewMonthLabel = useMemo(() => formatMonthLabel(state.tradeSummary?.month), [state.tradeSummary?.month]);
     const tradeReviewSummaryText = useMemo(() => {
-        return '说明：数据来自当月交易复盘结果，按各类交易相对实时现货价格的偏差结算表现汇总展示贡献值、胜率和电量占比。';
-    }, []);
+        return `说明：数据来自${tradeReviewMonthLabel}交易复盘结果，按各类交易相对实时现货价格的偏差结算表现汇总展示贡献值、胜率和电量占比。`;
+    }, [tradeReviewMonthLabel]);
 
     const avgContractPrice = useMemo(() => {
         const rows = state.priceTrend?.daily_trends.filter((item) => item.contract_vwap !== null) || [];
@@ -337,6 +345,11 @@ export const DashboardPage: React.FC = () => {
     );
 
     const activeSettlementChart = settlementViewMode === 'yearly' ? state.yearlySettlementChart : state.settlementChart;
+    const settlementMonthLabel = useMemo(() => formatMonthLabel(state.settlementKpi?.month), [state.settlementKpi?.month]);
+    const settlementAsOfDateText = useMemo(
+        () => state.settlementKpi?.as_of_date || activeSettlementChart?.as_of_date || '--',
+        [activeSettlementChart?.as_of_date, state.settlementKpi?.as_of_date]
+    );
 
     const settlementChartData = useMemo(() => {
         const rows = activeSettlementChart?.chart_data || [];
@@ -462,8 +475,9 @@ export const DashboardPage: React.FC = () => {
             subtitle={
                 <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap', justifyContent: 'center' }}>
                     <InlineStat label="年度累计毛利" value={formatWanYuan(state.settlementKpi?.kpi.yearly_gross_profit)} tone={getValueColor(state.settlementKpi?.kpi.yearly_gross_profit)} />
-                    <InlineStat label="本月毛利" value={formatWanYuan(state.settlementKpi?.kpi.monthly_gross_profit)} tone={getValueColor(state.settlementKpi?.kpi.monthly_gross_profit)} />
-                    <InlineStat label="购电均价/售电均价/本月价差" value={`${formatNumber(state.settlementKpi?.kpi.wholesale_avg_price, 3)} / ${formatNumber(state.settlementKpi?.kpi.retail_avg_price, 3)} / ${formatNumber(state.settlementKpi?.kpi.price_spread, 3)} 元/MWh`} tone={getValueColor(state.settlementKpi?.kpi.price_spread)} />
+                    <InlineStat label={`${settlementMonthLabel}毛利`} value={formatWanYuan(state.settlementKpi?.kpi.monthly_gross_profit)} tone={getValueColor(state.settlementKpi?.kpi.monthly_gross_profit)} />
+                    <InlineStat label={`购电均价/售电均价/${settlementMonthLabel}价差`} value={`${formatNumber(state.settlementKpi?.kpi.wholesale_avg_price, 3)} / ${formatNumber(state.settlementKpi?.kpi.retail_avg_price, 3)} / ${formatNumber(state.settlementKpi?.kpi.price_spread, 3)} 元/MWh`} tone={getValueColor(state.settlementKpi?.kpi.price_spread)} />
+                    <InlineStat label="结算截止日" value={settlementAsOfDateText} />
                 </Box>
             }
         >
@@ -982,18 +996,19 @@ export const DashboardPage: React.FC = () => {
     const mobileLayoutSx = {
         display: 'flex',
         flexDirection: 'column',
-        gap: 1,
-        px: { xs: 0, sm: 1 },
-        pt: 0,
-        pb: { xs: 1, sm: 2 },
+        gap: { xs: 1.5, sm: 2 },
+        px: { xs: 1.5, sm: 2 },
+        pt: { xs: 1.5, sm: 2 },
+        pb: { xs: 1.5, sm: 2 },
     } as const;
 
     const desktopLayoutSx = {
         display: 'grid',
         gridTemplateColumns: '1fr 2fr 1fr',
         gridTemplateRows: 'repeat(2, minmax(0, 1fr))',
-        gap: 1,
-        p: 1,
+        gap: 2,
+        px: 2,
+        py: 2,
         height: 'calc(100vh - 64px - 49px)',
         minHeight: 0,
         overflow: 'hidden',

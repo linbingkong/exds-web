@@ -34,8 +34,14 @@ class DashboardService:
         now = datetime.now()
         return now.year, now.month
 
+    def get_settlement_display_month(self) -> str:
+        latest_settlement_date = self._get_latest_settlement_date()
+        if latest_settlement_date:
+            return latest_settlement_date[:7]
+        return self.get_current_month()
+
     def get_settlement_kpi(self, month: Optional[str] = None) -> Dict[str, Any]:
-        month_str = month or self.get_current_month()
+        month_str = month or self.get_settlement_display_month()
         year, mon = map(int, month_str.split("-"))
         ytd_data = self.customer_profit_service.get_dashboard_data(
             year=year,
@@ -60,7 +66,7 @@ class DashboardService:
         }
 
     def get_settlement_chart(self, month: Optional[str] = None, view_mode: str = "monthly") -> Dict[str, Any]:
-        month_str = month or self.get_current_month()
+        month_str = month or self.get_settlement_display_month()
         if view_mode == "yearly":
             year = int(month_str.split("-")[0])
             return self._build_yearly_settlement_chart(year)
@@ -246,7 +252,7 @@ class DashboardService:
         }
 
     def get_trade_summary(self, month: Optional[str] = None) -> Dict[str, Any]:
-        month_str = month or self.get_current_month()
+        month_str = month or self.get_settlement_display_month()
         detail = self.monthly_trade_review_service.get_monthly_detail(month_str)
         return {
             "month": month_str,
@@ -591,6 +597,35 @@ class DashboardService:
             )
         ]
         return available[-1] if available else None
+
+    def _get_latest_settlement_date(self) -> Optional[str]:
+        cursor = self.db["settlement_daily"].find(
+            {
+                "version": "PRELIMINARY",
+                "operating_date": {"$exists": True, "$ne": None},
+            },
+            {
+                "_id": 0,
+                "operating_date": 1,
+                "real_time_volume": 1,
+                "predicted_wholesale_cost": 1,
+                "deviation_recovery_fee": 1,
+            },
+        ).sort("operating_date", -1).limit(60)
+
+        for doc in cursor:
+            operating_date = str(doc.get("operating_date") or "")
+            if not operating_date:
+                continue
+
+            has_settlement_value = any(
+                float(doc.get(field) or 0.0) != 0.0
+                for field in ("real_time_volume", "predicted_wholesale_cost", "deviation_recovery_fee")
+            )
+            if has_settlement_value:
+                return operating_date
+
+        return None
 
     def _build_contract_distribution(self, year: int, month: int) -> List[Dict[str, Any]]:
         start_date = datetime(year, month, 1)
