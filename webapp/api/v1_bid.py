@@ -107,9 +107,21 @@ class ProfitSummaryModel(BaseModel):
     end_date: str
     total_realized_pnl_yuan: float
     avg_daily_realized_pnl_yuan: float
-    win_rate: float
-    max_drawdown_yuan: float
+    daily_win_rate: float
+    period_win_rate: float
+    profitable_amount_yuan: float
+    loss_amount_yuan: float
+    profit_loss_ratio: float
+    avg_profit_yuan: float
+    avg_loss_yuan: float
+    avg_profit_loss_ratio: float
+    max_single_day_profit_yuan: float
     max_single_day_loss_yuan: float
+    max_profit_loss_ratio: float
+    max_drawdown_yuan: float
+    unit_pnl_yuan_per_mwh: float
+    avg_bid_mwh_per_active_period: float
+    avg_period_pnl_yuan: float
     trading_days: int
 
 
@@ -576,7 +588,8 @@ def _ensure_strategy_results_for_range(trade_source: Dict[str, Any], start_date:
             }
         )
     )
-    return sorted(rows, key=_result_sort_key)
+    settled_rows = [row for row in rows if str(row.get("status") or "") == "settled"]
+    return sorted(settled_rows, key=_result_sort_key)
 
 
 def _next_day_declare_status(trade_source_id: str) -> DeclareStatus:
@@ -639,11 +652,33 @@ def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any
 
 def _profit_summary_from_results(trade_source_id: str, start_date: str, end_date: str, rows: List[Dict[str, Any]]) -> ProfitSummaryModel:
     realized_values = [float(item.get("daily_realized_pnl") or 0) for item in rows]
+    positive_values = [item for item in realized_values if item > 0]
+    negative_values = [item for item in realized_values if item < 0]
+    total_bid_mwh = sum(float(item.get("daily_bid_mwh") or 0) for item in rows)
+    total_active_bid_periods = sum(
+        1
+        for item in rows
+        for bid_value in (item.get("bid_mwh") or [])
+        if float(bid_value or 0) > 0
+    )
+    total_win_periods = sum(int(item.get("daily_win_periods") or 0) for item in rows)
+    total_loss_periods = sum(int(item.get("daily_loss_periods") or 0) for item in rows)
+    total_period_count = sum(len(item.get("period_pnl") or []) or PERIOD_COUNT for item in rows)
     total_realized = _round(sum(realized_values), 2)
     trading_days = len(rows)
     avg_daily = _round(total_realized / trading_days, 2) if trading_days else 0.0
-    win_rate = _round(sum(1 for item in realized_values if item > 0) / trading_days, 4) if trading_days else 0.0
-    max_single_day_loss = _round(min(realized_values), 2) if realized_values else 0.0
+    daily_win_rate = _round(len(positive_values) / trading_days, 4) if trading_days else 0.0
+    period_win_rate_denominator = total_win_periods + total_loss_periods
+    period_win_rate = _round(total_win_periods / period_win_rate_denominator, 4) if period_win_rate_denominator else 0.0
+    profitable_amount = _round(sum(positive_values), 2)
+    loss_amount = _round(sum(negative_values), 2)
+    profit_loss_ratio = _round(profitable_amount / abs(loss_amount), 4) if loss_amount < 0 else 0.0
+    avg_profit = _round(profitable_amount / len(positive_values), 2) if positive_values else 0.0
+    avg_loss = _round(loss_amount / len(negative_values), 2) if negative_values else 0.0
+    avg_profit_loss_ratio = _round(avg_profit / abs(avg_loss), 4) if avg_loss < 0 else 0.0
+    max_single_day_profit = _round(max(positive_values), 2) if positive_values else 0.0
+    max_single_day_loss = _round(min(negative_values), 2) if negative_values else 0.0
+    max_profit_loss_ratio = _round(max_single_day_profit / abs(max_single_day_loss), 4) if max_single_day_loss < 0 else 0.0
     cumulative = 0.0
     peak = 0.0
     max_drawdown = 0.0
@@ -657,9 +692,21 @@ def _profit_summary_from_results(trade_source_id: str, start_date: str, end_date
         end_date=end_date,
         total_realized_pnl_yuan=total_realized,
         avg_daily_realized_pnl_yuan=avg_daily,
-        win_rate=win_rate,
+        daily_win_rate=daily_win_rate,
+        period_win_rate=period_win_rate,
+        profitable_amount_yuan=profitable_amount,
+        loss_amount_yuan=loss_amount,
+        profit_loss_ratio=profit_loss_ratio,
+        avg_profit_yuan=avg_profit,
+        avg_loss_yuan=avg_loss,
+        avg_profit_loss_ratio=avg_profit_loss_ratio,
+        max_single_day_profit_yuan=max_single_day_profit,
+        max_single_day_loss_yuan=max_single_day_loss,
+        max_profit_loss_ratio=max_profit_loss_ratio,
         max_drawdown_yuan=_round(abs(max_drawdown), 2),
-        max_single_day_loss_yuan=_round(abs(min(max_single_day_loss, 0.0)), 2),
+        unit_pnl_yuan_per_mwh=_round(total_realized / total_bid_mwh, 4) if total_bid_mwh else 0.0,
+        avg_bid_mwh_per_active_period=_round(total_bid_mwh / total_active_bid_periods, 4) if total_active_bid_periods else 0.0,
+        avg_period_pnl_yuan=_round(total_realized / total_period_count, 2) if total_period_count else 0.0,
         trading_days=trading_days,
     )
 
@@ -668,17 +715,15 @@ def _profit_curve_from_results(trade_source_id: str, metric: ProfitMetric, rows:
     points: List[ProfitCurvePointModel] = []
     cumulative_strategy = 0.0
     cumulative_benchmark = 0.0
-    cumulative_bid = 0.0
     for item in rows:
         daily_bid = float(item.get("daily_bid_mwh") or 0)
         realized = float(item.get("daily_realized_pnl") or 0)
         expected = float(item.get("daily_expected_pnl") or 0) * 0.82
-        cumulative_bid += daily_bid
         cumulative_strategy += realized
         cumulative_benchmark += expected
         if metric == "unit":
-            strategy_value = _round(cumulative_strategy / cumulative_bid, 4) if cumulative_bid else 0.0
-            benchmark_value = _round(cumulative_benchmark / cumulative_bid, 4) if cumulative_bid else 0.0
+            strategy_value = _round(realized / daily_bid, 4) if daily_bid else 0.0
+            benchmark_value = _round(expected / daily_bid, 4) if daily_bid else 0.0
             unit_label = "元/MWh"
         else:
             strategy_value = _round(cumulative_strategy, 2)

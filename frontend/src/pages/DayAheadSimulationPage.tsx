@@ -48,8 +48,8 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { zhCN } from 'date-fns/locale';
-import { addDays, format } from 'date-fns';
-import { Area, Bar, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { addDays, eachDayOfInterval, format } from 'date-fns';
+import { Bar, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
     DailyReviewDetail,
     ProfitCurvePoint,
@@ -86,6 +86,12 @@ const MetricCard: React.FC<{ title: string; value: string; color?: string }> = (
     </Paper>
 );
 
+const formatProfitAmountWan = (value: number) => `${(value / 10000).toFixed(3)} 万元`;
+
+const formatProfitPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
+
+const formatProfitRatio = (value: number) => (value > 0 ? value.toFixed(2) : '--');
+
 export const DayAheadSimulationPage: React.FC = () => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -108,15 +114,18 @@ export const DayAheadSimulationPage: React.FC = () => {
     const [simulationRefAreaRight, setSimulationRefAreaRight] = useState<number | null>(null);
     const [simulationSelection, setSimulationSelection] = useState<{ start: number; end: number } | null>(null);
     const [simulationHoveredPeriod, setSimulationHoveredPeriod] = useState<number | null>(null);
+    const [simulationTooltipPosition, setSimulationTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
 
     const range = useMemo(() => dayAheadBidApi.buildDefaultProfitRange(), []);
     const [profitStartDate, setProfitStartDate] = useState<Date | null>(new Date(range.start_date));
     const [profitEndDate, setProfitEndDate] = useState<Date | null>(new Date(range.end_date));
     const [profitMetric, setProfitMetric] = useState<ProfitMetric>('amount');
-    const [profitTab, setProfitTab] = useState(0);
     const [profitSummary, setProfitSummary] = useState<ProfitSummary | null>(null);
     const [profitCurve, setProfitCurve] = useState<ProfitCurvePoint[]>([]);
     const [profitRows, setProfitRows] = useState<ProfitDailyRow[]>([]);
+    const [profitHoveredDate, setProfitHoveredDate] = useState<string | null>(null);
+    const [profitTooltipPosition, setProfitTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
+    const [profitTab, setProfitTab] = useState(0);
 
     const [reviewTargetDate, setReviewTargetDate] = useState<Date | null>(addDays(new Date(), -1));
     const [reviewTab, setReviewTab] = useState(0);
@@ -268,6 +277,93 @@ export const DayAheadSimulationPage: React.FC = () => {
         [simulationHoveredPeriod, simulationRows],
     );
 
+    const profitChartRows = useMemo(() => {
+        if (!profitStartDate || !profitEndDate || profitStartDate > profitEndDate) return [];
+        const curveMap = new Map(profitCurve.map((item) => [item.date, item]));
+        const volumeMap = new Map(profitRows.map((item) => [item.date, item.bid_total_mwh]));
+        return eachDayOfInterval({ start: profitStartDate, end: profitEndDate }).map((date) => {
+            const dateStr = format(date, 'yyyy-MM-dd');
+            const curveItem = curveMap.get(dateStr);
+            const isAmountMetric = profitMetric === 'amount';
+            const strategyValue = curveItem?.strategy_value ?? null;
+            return {
+                date: dateStr,
+                strategyValue: strategyValue == null
+                    ? null
+                    : (isAmountMetric ? Number((strategyValue / 10000).toFixed(3)) : Number(strategyValue.toFixed(3))),
+                strategyUnit: isAmountMetric ? '万元' : (curveItem?.unit_label || '元/MWh'),
+                bidTotalMwh: volumeMap.get(dateStr) ?? null,
+            };
+        });
+    }, [profitCurve, profitEndDate, profitMetric, profitRows, profitStartDate]);
+
+    const profitHoveredRow = useMemo(
+        () => profitChartRows.find((row) => row.date === profitHoveredDate) ?? null,
+        [profitChartRows, profitHoveredDate],
+    );
+
+    const profitDateTickInterval = useMemo(() => {
+        if (profitChartRows.length <= 8) return 0;
+        return Math.max(Math.ceil(profitChartRows.length / 8) - 1, 0);
+    }, [profitChartRows.length]);
+
+    const profitMetricItems = useMemo(() => {
+        if (!profitSummary) return [];
+        const avgBidMwhPerActivePeriod = Number(profitSummary.avg_bid_mwh_per_active_period ?? 0);
+        return [
+            { title: '策略收益', value: formatProfitAmountWan(profitSummary.total_realized_pnl_yuan), color: profitSummary.total_realized_pnl_yuan >= 0 ? '#dc2626' : '#2563eb' },
+            { title: '交易天数', value: `${profitSummary.trading_days}` },
+            { title: '日均收益', value: formatProfitAmountWan(profitSummary.avg_daily_realized_pnl_yuan) },
+            { title: '日胜率', value: formatProfitPercent(profitSummary.daily_win_rate), color: '#dc2626' },
+            { title: '时段胜率', value: formatProfitPercent(profitSummary.period_win_rate) },
+            { title: '盈利金额', value: formatProfitAmountWan(profitSummary.profitable_amount_yuan), color: '#dc2626' },
+            { title: '亏损金额', value: formatProfitAmountWan(profitSummary.loss_amount_yuan), color: '#2563eb' },
+            { title: '盈亏比', value: formatProfitRatio(profitSummary.profit_loss_ratio) },
+            { title: '日均盈利', value: formatProfitAmountWan(profitSummary.avg_profit_yuan), color: '#dc2626' },
+            { title: '日均亏损', value: formatProfitAmountWan(profitSummary.avg_loss_yuan), color: '#2563eb' },
+            { title: '平均盈亏比', value: formatProfitRatio(profitSummary.avg_profit_loss_ratio) },
+            { title: '单日最大盈利', value: formatProfitAmountWan(profitSummary.max_single_day_profit_yuan), color: '#dc2626' },
+            { title: '单日最大亏损', value: formatProfitAmountWan(profitSummary.max_single_day_loss_yuan), color: '#2563eb' },
+            { title: '最大盈亏比', value: formatProfitRatio(profitSummary.max_profit_loss_ratio) },
+            { title: '最大回撤', value: formatProfitAmountWan(profitSummary.max_drawdown_yuan) },
+            { title: '单位电量收益', value: `${profitSummary.unit_pnl_yuan_per_mwh.toFixed(3)} 元/MWh` },
+            { title: '平均时段电量', value: `${avgBidMwhPerActivePeriod.toFixed(2)} MWh` },
+            { title: '时段平均收益', value: formatProfitAmountWan(profitSummary.avg_period_pnl_yuan) },
+        ];
+    }, [profitSummary]);
+
+    const simulationTooltipSx = useMemo(() => {
+        if (!simulationTooltipPosition) {
+            return {
+                top: 12,
+                right: 16,
+            };
+        }
+        const tooltipWidth = 220;
+        const placeLeft = simulationTooltipPosition.x <= simulationTooltipPosition.containerWidth - tooltipWidth - 24;
+        return {
+            left: simulationTooltipPosition.x + (placeLeft ? 16 : -16),
+            top: Math.max(simulationTooltipPosition.y - 12, 12),
+            transform: placeLeft ? 'translateY(-100%)' : 'translate(-100%, -100%)',
+        };
+    }, [simulationTooltipPosition]);
+
+    const profitTooltipSx = useMemo(() => {
+        if (!profitTooltipPosition) {
+            return {
+                top: 12,
+                right: 12,
+            };
+        }
+        const tooltipWidth = 220;
+        const placeLeft = profitTooltipPosition.x <= profitTooltipPosition.containerWidth - tooltipWidth - 24;
+        return {
+            left: profitTooltipPosition.x + (placeLeft ? 16 : -16),
+            top: Math.max(profitTooltipPosition.y - 12, 12),
+            transform: placeLeft ? 'translateY(-100%)' : 'translate(-100%, -100%)',
+        };
+    }, [profitTooltipPosition]);
+
     const refreshTradeSources = async () => {
         const list = await dayAheadBidApi.getTradeSources();
         setTradeSources(list);
@@ -277,6 +373,12 @@ export const DayAheadSimulationPage: React.FC = () => {
         const next = dayAheadBidApi.buildQuickRange(preset);
         setProfitStartDate(new Date(next.start_date));
         setProfitEndDate(new Date(next.end_date));
+    };
+
+    const openDailyReviewFromProfitRow = (date: string) => {
+        setReviewTargetDate(new Date(date));
+        setReviewTab(0);
+        setActivePanel(2);
     };
 
     const openCreateDialog = () => {
@@ -391,9 +493,38 @@ export const DayAheadSimulationPage: React.FC = () => {
 
     const handleSimulationMouseLeave = () => {
         setSimulationHoveredPeriod(null);
+        setSimulationTooltipPosition(null);
         if (simulationRefAreaLeft == null) {
             setSimulationRefAreaRight(null);
         }
+    };
+
+    const handleSimulationContainerMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setSimulationTooltipPosition({
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+            containerWidth: rect.width,
+        });
+    };
+
+    const handleProfitMouseMove = (event: any) => {
+        if (!event || typeof event.activeLabel !== 'string') return;
+        setProfitHoveredDate(event.activeLabel);
+    };
+
+    const handleProfitMouseLeave = () => {
+        setProfitHoveredDate(null);
+        setProfitTooltipPosition(null);
+    };
+
+    const handleProfitContainerMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setProfitTooltipPosition({
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+            containerWidth: rect.width,
+        });
     };
 
     const clearSimulationSelection = () => {
@@ -570,6 +701,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                             )}
                             <Box
                                 ref={simulationChartRef}
+                                onMouseMove={handleSimulationContainerMouseMove}
+                                onMouseLeave={handleSimulationMouseLeave}
                                 sx={{
                                     flex: 1,
                                     minHeight: 260,
@@ -587,14 +720,14 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         variant="outlined"
                                         sx={{
                                             position: 'absolute',
-                                            top: 12,
-                                            right: 16,
                                             zIndex: 3,
                                             px: 1.5,
                                             py: 1.25,
                                             minWidth: 188,
+                                            maxWidth: 220,
                                             pointerEvents: 'none',
                                             boxShadow: '0 12px 28px rgba(15,23,42,0.12)',
+                                            ...simulationTooltipSx,
                                         }}
                                     >
                                         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>时段 {simulationHoveredRow.period}</Typography>
@@ -807,7 +940,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                     sx={{
                         p: 1.5,
                         borderRadius: 2,
-                        background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(251,146,60,0.06) 100%)',
+                        background: 'linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(241,245,249,0.96) 100%)',
                     }}
                 >
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} useFlexGap flexWrap="wrap" alignItems={{ md: 'center' }}>
@@ -828,15 +961,69 @@ export const DayAheadSimulationPage: React.FC = () => {
                             <ToggleButton value="unit">兆瓦时收益</ToggleButton>
                         </ToggleButtonGroup>
                     </Stack>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>仅影响收益曲线展示，顶部指标卡固定按金额收益统计。</Typography>
                 </Paper>
-                <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap">
-                    <MetricCard title="总收益" value={`${profitSummary.total_realized_pnl_yuan.toFixed(2)} 元`} color={profitSummary.total_realized_pnl_yuan >= 0 ? '#166534' : '#b91c1c'} />
-                    <MetricCard title="平均日收益" value={`${profitSummary.avg_daily_realized_pnl_yuan.toFixed(2)} 元`} />
-                    <MetricCard title="胜率" value={`${profitSummary.win_rate.toFixed(2)}%`} />
-                    <MetricCard title="最大回撤" value={`${profitSummary.max_drawdown_yuan.toFixed(2)} 元`} />
-                    <MetricCard title="最大单日亏损" value={`${profitSummary.max_single_day_loss_yuan.toFixed(2)} 元`} color="#b91c1c" />
-                </Stack>
+                <Paper
+                    variant="outlined"
+                    sx={{
+                        p: 0,
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        backgroundColor: 'background.paper',
+                    }}
+                >
+                    <Box sx={{ px: 1.5, py: 1.25, backgroundColor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>策略指标</Typography>
+                    </Box>
+                    <Box sx={{ p: 1.25 }}>
+                        <Box
+                            sx={{
+                                display: 'grid',
+                                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(6, minmax(0, 1fr))' },
+                                gridAutoRows: 'minmax(0, 1fr)',
+                                gap: 0.75,
+                                alignItems: 'stretch',
+                            }}
+                        >
+                            {profitMetricItems.map((item) => (
+                                <Box
+                                    key={item.title}
+                                    sx={{
+                                        px: 1,
+                                        py: 0.75,
+                                        border: 1,
+                                        borderColor: 'divider',
+                                        borderRadius: 2,
+                                        bgcolor: 'grey.50',
+                                        minWidth: 0,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'center',
+                                        minHeight: 0,
+                                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
+                                        overflow: 'hidden',
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                                        {item.title}
+                                    </Typography>
+                                    <Typography
+                                        variant="body2"
+                                        sx={{
+                                            mt: 0.25,
+                                            fontWeight: 700,
+                                            color: item.color || 'text.primary',
+                                            fontSize: { xs: '0.92rem', md: '1rem' },
+                                            lineHeight: 1.2,
+                                            wordBreak: 'break-word',
+                                        }}
+                                    >
+                                        {item.value}
+                                    </Typography>
+                                </Box>
+                            ))}
+                        </Box>
+                    </Box>
+                </Paper>
                 <Paper
                     variant="outlined"
                     sx={{
@@ -848,42 +1035,101 @@ export const DayAheadSimulationPage: React.FC = () => {
                         background: 'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,0.96) 100%)',
                     }}
                 >
-                    <Box sx={{ px: 1.5, pt: 1.25, display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                         <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>收益走势与日度明细</Typography>
-                            <Typography variant="body2" color="text.secondary">同一面板内切换趋势曲线与每日收益表，保留分析上下文。</Typography>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>策略收益曲线</Typography>
                         </Box>
                         <Tabs value={profitTab} onChange={(_event, value) => setProfitTab(value)}>
-                            <Tab label="收益曲线" />
-                            <Tab label="每日明细" />
+                            <Tab label="联合图表" />
+                            <Tab label="数据表格" />
                         </Tabs>
                     </Box>
-                    <Box sx={{ p: 1.5, flex: 1, minHeight: 0 }}>
+                    <Box sx={{ pt: 1, px: 1.5, pb: 0.75, flex: 1, minHeight: 0 }}>
                         {profitTab === 0 ? (
-                            <Box sx={{ height: 420, '& .recharts-surface:focus': { outline: 'none' }, '& *:focus': { outline: 'none !important' } }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={profitCurve} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                                        <YAxis tick={{ fontSize: 12 }} />
-                                        <Tooltip formatter={(value: number, name: string, item: any) => [`${Number(value).toFixed(2)} ${item.payload.unit_label}`, name]} />
-                                        <Area type="monotone" dataKey="excess_value" fill="#fdba74" stroke="#fb923c" fillOpacity={0.22} name="超额收益" />
-                                        <Line type="monotone" dataKey="strategy_value" stroke="#1d4ed8" strokeWidth={2.2} dot={false} name="策略收益" />
-                                        <Line type="monotone" dataKey="benchmark_value" stroke="#b45309" strokeWidth={2} dot={false} name="基准收益" />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
+                            <Box
+                                onMouseMove={handleProfitContainerMouseMove}
+                                onMouseLeave={handleProfitMouseLeave}
+                                sx={{
+                                    height: '100%',
+                                    minHeight: 260,
+                                    position: 'relative',
+                                    '& .recharts-surface:focus': { outline: 'none' },
+                                    '& *:focus': { outline: 'none !important' },
+                                }}
+                            >
+                                {profitHoveredRow && (
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            position: 'absolute',
+                                            zIndex: 3,
+                                            px: 1.5,
+                                            py: 1.25,
+                                            minWidth: 188,
+                                            maxWidth: 220,
+                                            pointerEvents: 'none',
+                                            boxShadow: '0 12px 28px rgba(15,23,42,0.12)',
+                                            ...profitTooltipSx,
+                                        }}
+                                    >
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{profitHoveredRow.date}</Typography>
+                                        <Typography variant="body2">策略收益：{profitHoveredRow.strategyValue == null ? '-' : `${profitHoveredRow.strategyValue.toFixed(3)} ${profitHoveredRow.strategyUnit}`}</Typography>
+                                        <Typography variant="body2">申报电量：{profitHoveredRow.bidTotalMwh == null ? '-' : `${profitHoveredRow.bidTotalMwh.toFixed(1)} MWh`}</Typography>
+                                    </Paper>
+                                )}
+                                <Box sx={{ height: '52%' }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <ComposedChart
+                                            data={profitChartRows}
+                                            syncId="profit-analysis"
+                                            margin={{ top: 12, right: 12, left: 0, bottom: 0 }}
+                                            onMouseMove={handleProfitMouseMove}
+                                            onMouseLeave={handleProfitMouseLeave}
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="date" hide interval={0} />
+                                            <YAxis tick={{ fontSize: 12 }} />
+                                            {profitHoveredDate && <ReferenceLine x={profitHoveredDate} stroke="#64748b" strokeDasharray="4 4" />}
+                                            <Line type="monotone" dataKey="strategyValue" stroke="#1d4ed8" strokeWidth={2.2} dot={false} connectNulls={false} name="策略收益" />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </Box>
+                                <Box sx={{ height: '48%' }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <ComposedChart
+                                            data={profitChartRows}
+                                            syncId="profit-analysis"
+                                            margin={{ top: 6, right: 12, left: 0, bottom: 0 }}
+                                            onMouseMove={handleProfitMouseMove}
+                                            onMouseLeave={handleProfitMouseLeave}
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis
+                                                dataKey="date"
+                                                tick={{ fontSize: 11 }}
+                                                tickFormatter={(value: string) => format(new Date(value), 'MM-dd')}
+                                                interval={profitDateTickInterval}
+                                                height={36}
+                                            />
+                                            <YAxis tick={{ fontSize: 12 }} />
+                                            {profitHoveredDate && <ReferenceLine x={profitHoveredDate} stroke="#64748b" strokeDasharray="4 4" />}
+                                            <Bar dataKey="bidTotalMwh" fill="#2563eb" name="申报电量" />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </Box>
                             </Box>
                         ) : (
-                            <TableContainer sx={{ maxHeight: 440, borderRadius: 2 }}>
+                            <TableContainer sx={{ height: '100%', minHeight: 260, borderRadius: 2, border: 1, borderColor: 'divider' }}>
                                 <Table stickyHeader size="small">
                                     <TableHead>
                                         <TableRow>
                                             <TableCell>日期</TableCell>
                                             <TableCell align="right">申报电量</TableCell>
-                                            <TableCell align="right">实际收益</TableCell>
+                                            <TableCell align="right">策略收益</TableCell>
                                             <TableCell align="right">单位收益</TableCell>
-                                            <TableCell align="right">正收益时段数</TableCell>
-                                            <TableCell align="right">负收益时段数</TableCell>
+                                            <TableCell align="right">盈利时段</TableCell>
+                                            <TableCell align="right">亏损时段</TableCell>
+                                            <TableCell align="right">平均价差</TableCell>
                                             <TableCell align="right">操作</TableCell>
                                         </TableRow>
                                     </TableHead>
@@ -891,13 +1137,20 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         {profitRows.map((row) => (
                                             <TableRow key={row.date} hover>
                                                 <TableCell>{row.date}</TableCell>
-                                                <TableCell align="right">{row.bid_total_mwh.toFixed(1)}</TableCell>
-                                                <TableCell align="right">{row.realized_pnl_yuan.toFixed(2)}</TableCell>
-                                                <TableCell align="right">{row.unit_pnl_yuan_per_mwh.toFixed(2)}</TableCell>
+                                                <TableCell align="right">{row.bid_total_mwh.toFixed(1)} MWh</TableCell>
+                                                <TableCell align="right">{(row.realized_pnl_yuan / 10000).toFixed(3)} 万元</TableCell>
+                                                <TableCell align="right">{row.unit_pnl_yuan_per_mwh.toFixed(3)} 元/MWh</TableCell>
                                                 <TableCell align="right">{row.win_periods}</TableCell>
                                                 <TableCell align="right">{row.loss_periods}</TableCell>
+                                                <TableCell align="right">{row.avg_spread_yuan_per_mwh.toFixed(2)} 元/MWh</TableCell>
                                                 <TableCell align="right">
-                                                    <Button size="small" onClick={() => { setReviewTargetDate(new Date(row.date)); setActivePanel(2); }}>查看复盘</Button>
+                                                    <Button
+                                                        size="small"
+                                                        variant="text"
+                                                        onClick={() => openDailyReviewFromProfitRow(row.date)}
+                                                    >
+                                                        查看复盘
+                                                    </Button>
                                                 </TableCell>
                                             </TableRow>
                                         ))}

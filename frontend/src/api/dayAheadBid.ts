@@ -59,9 +59,21 @@ export interface ProfitSummary {
     end_date: string;
     total_realized_pnl_yuan: number;
     avg_daily_realized_pnl_yuan: number;
-    win_rate: number;
-    max_drawdown_yuan: number;
+    daily_win_rate: number;
+    period_win_rate: number;
+    profitable_amount_yuan: number;
+    loss_amount_yuan: number;
+    profit_loss_ratio: number;
+    avg_profit_yuan: number;
+    avg_loss_yuan: number;
+    avg_profit_loss_ratio: number;
+    max_single_day_profit_yuan: number;
     max_single_day_loss_yuan: number;
+    max_profit_loss_ratio: number;
+    max_drawdown_yuan: number;
+    unit_pnl_yuan_per_mwh: number;
+    avg_bid_mwh_per_active_period: number;
+    avg_period_pnl_yuan: number;
     trading_days: number;
 }
 
@@ -379,7 +391,21 @@ function buildDailyRows(item: TradeSourceListItem, startDate: string, endDate: s
 
 function buildSummary(item: TradeSourceListItem, startDate: string, endDate: string): ProfitSummary {
     const rows = buildDailyRows(item, startDate, endDate);
+    const activeBidPeriods = rows.reduce((sum, row) => {
+        const bidCurve = item.trade_type === 'auto'
+            ? buildBidCurve('auto', 1, row.date)
+            : buildBidCurve('manual', 0, row.date);
+        return sum + bidCurve.filter((value) => value > 0).length;
+    }, 0);
     const total = rows.reduce((sum, row) => sum + row.realized_pnl_yuan, 0);
+    const positiveRows = rows.filter((row) => row.realized_pnl_yuan > 0);
+    const negativeRows = rows.filter((row) => row.realized_pnl_yuan < 0);
+    const profitableAmount = positiveRows.reduce((sum, row) => sum + row.realized_pnl_yuan, 0);
+    const lossAmount = negativeRows.reduce((sum, row) => sum + row.realized_pnl_yuan, 0);
+    const totalBid = rows.reduce((sum, row) => sum + row.bid_total_mwh, 0);
+    const totalWinPeriods = rows.reduce((sum, row) => sum + row.win_periods, 0);
+    const totalLossPeriods = rows.reduce((sum, row) => sum + row.loss_periods, 0);
+    const totalPeriods = rows.length * 48;
     let peak = 0;
     let cumulative = 0;
     let maxDrawdown = 0;
@@ -388,17 +414,32 @@ function buildSummary(item: TradeSourceListItem, startDate: string, endDate: str
         peak = Math.max(peak, cumulative);
         maxDrawdown = Math.max(maxDrawdown, peak - cumulative);
     });
-    const maxSingleDayLoss = Math.min(...rows.map((row) => row.realized_pnl_yuan));
-    const winDays = rows.filter((row) => row.realized_pnl_yuan > 0).length;
+    const maxSingleDayProfit = positiveRows.length ? Math.max(...positiveRows.map((row) => row.realized_pnl_yuan)) : 0;
+    const maxSingleDayLoss = negativeRows.length ? Math.min(...negativeRows.map((row) => row.realized_pnl_yuan)) : 0;
+    const winDays = positiveRows.length;
+    const avgProfit = positiveRows.length ? profitableAmount / positiveRows.length : 0;
+    const avgLoss = negativeRows.length ? lossAmount / negativeRows.length : 0;
     return {
         trade_source_id: item.trade_source_id,
         start_date: startDate,
         end_date: endDate,
         total_realized_pnl_yuan: round(total, 2),
         avg_daily_realized_pnl_yuan: round(total / Math.max(rows.length, 1), 2),
-        win_rate: round((winDays / Math.max(rows.length, 1)) * 100, 2),
-        max_drawdown_yuan: round(maxDrawdown, 2),
+        daily_win_rate: round(winDays / Math.max(rows.length, 1), 4),
+        period_win_rate: round(totalWinPeriods / Math.max(totalWinPeriods + totalLossPeriods, 1), 4),
+        profitable_amount_yuan: round(profitableAmount, 2),
+        loss_amount_yuan: round(lossAmount, 2),
+        profit_loss_ratio: round(lossAmount < 0 ? profitableAmount / Math.abs(lossAmount) : 0, 4),
+        avg_profit_yuan: round(avgProfit, 2),
+        avg_loss_yuan: round(avgLoss, 2),
+        avg_profit_loss_ratio: round(avgLoss < 0 ? avgProfit / Math.abs(avgLoss) : 0, 4),
+        max_single_day_profit_yuan: round(maxSingleDayProfit, 2),
         max_single_day_loss_yuan: round(maxSingleDayLoss, 2),
+        max_profit_loss_ratio: round(maxSingleDayLoss < 0 ? maxSingleDayProfit / Math.abs(maxSingleDayLoss) : 0, 4),
+        max_drawdown_yuan: round(maxDrawdown, 2),
+        unit_pnl_yuan_per_mwh: round(total / Math.max(totalBid, 1), 4),
+        avg_bid_mwh_per_active_period: round(totalBid / Math.max(activeBidPeriods, 1), 4),
+        avg_period_pnl_yuan: round(total / Math.max(totalPeriods, 1), 2),
         trading_days: rows.length,
     };
 }
