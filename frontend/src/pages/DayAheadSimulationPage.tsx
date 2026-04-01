@@ -37,6 +37,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import AnalyticsOutlinedIcon from '@mui/icons-material/AnalyticsOutlined';
+import ArrowLeftIcon from '@mui/icons-material/ArrowLeft';
 import ArrowRightIcon from '@mui/icons-material/ArrowRight';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
@@ -49,7 +50,7 @@ import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { zhCN } from 'date-fns/locale';
 import { addDays, eachDayOfInterval, format } from 'date-fns';
-import { Bar, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import {
     DailyReviewDetail,
     ProfitCurvePoint,
@@ -69,22 +70,6 @@ type PanelKey = 0 | 1 | 2 | 3;
 
 const EDIT_PERMISSION = 'module:strategy_dayahead:edit';
 const EMPTY_PARAM: TradeSourceParam = { param_key: '', param_name: '', param_value: '', unit: '', description: '' };
-
-const MetricCard: React.FC<{ title: string; value: string; color?: string }> = ({ title, value, color }) => (
-    <Paper
-        variant="outlined"
-        sx={{
-            p: 1.5,
-            minWidth: 148,
-            borderRadius: 2,
-            background: 'linear-gradient(180deg, rgba(248,250,252,0.96) 0%, rgba(255,255,255,1) 100%)',
-            boxShadow: '0 8px 24px rgba(15,23,42,0.04)',
-        }}
-    >
-        <Typography variant="caption" color="text.secondary" sx={{ letterSpacing: 0.3 }}>{title}</Typography>
-        <Typography variant="h6" sx={{ mt: 0.5, fontWeight: 700, color: color || 'text.primary' }}>{value}</Typography>
-    </Paper>
-);
 
 const formatProfitAmountWan = (value: number) => `${(value / 10000).toFixed(3)} 万元`;
 
@@ -130,6 +115,8 @@ export const DayAheadSimulationPage: React.FC = () => {
     const [reviewTargetDate, setReviewTargetDate] = useState<Date | null>(addDays(new Date(), -1));
     const [reviewTab, setReviewTab] = useState(0);
     const [dailyReview, setDailyReview] = useState<DailyReviewDetail | null>(null);
+    const [reviewHoveredPeriod, setReviewHoveredPeriod] = useState<number | null>(null);
+    const [reviewTooltipPosition, setReviewTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
 
     const strategyDetailCacheRef = useRef<Record<string, TradeSourceDetail | null>>({});
     const simulationCacheRef = useRef<Record<string, SimulationDetail>>({});
@@ -155,6 +142,12 @@ export const DayAheadSimulationPage: React.FC = () => {
         };
         void load();
     }, []);
+
+    useEffect(() => {
+        if (isMobile && activePanel === 3) {
+            setActivePanel(0);
+        }
+    }, [isMobile, activePanel]);
 
     useEffect(() => {
         if (!selectedTradeSourceId || activePanel !== 0) return;
@@ -241,7 +234,12 @@ export const DayAheadSimulationPage: React.FC = () => {
         }).catch((error) => {
             if (cancelled) return;
             console.error(error);
-            setFeedback({ severity: 'error', message: '加载单日复盘数据失败' });
+            setDailyReview(null);
+            setReviewHoveredPeriod(null);
+            setReviewTooltipPosition(null);
+            if (error?.response?.status !== 404) {
+                setFeedback({ severity: 'error', message: '加载单日复盘数据失败' });
+            }
         });
         return () => {
             cancelled = true;
@@ -364,6 +362,112 @@ export const DayAheadSimulationPage: React.FC = () => {
         };
     }, [profitTooltipPosition]);
 
+    const reviewChartRows = useMemo(() => (
+        dailyReview?.chart_rows.map((row) => {
+            const econPrice = row.econ_price_yuan_per_mwh ?? 0;
+            const realtimePrice = row.realtime_price_yuan_per_mwh ?? 0;
+            return {
+                ...row,
+                positivePriceBase: econPrice,
+                positivePriceGap: Math.max(realtimePrice - econPrice, 0),
+                negativePriceBase: realtimePrice,
+                negativePriceGap: Math.max(econPrice - realtimePrice, 0),
+                barColor: row.period_pnl_yuan >= 0 ? '#16a34a' : '#f97316',
+            };
+        }) ?? []
+    ), [dailyReview]);
+
+    const reviewHoveredRow = useMemo(
+        () => reviewChartRows.find((row) => row.period === reviewHoveredPeriod) ?? null,
+        [reviewChartRows, reviewHoveredPeriod],
+    );
+
+    const reviewPriceDomain = useMemo<[number, number]>(() => {
+        const values = reviewChartRows.flatMap((row) => [row.econ_price_yuan_per_mwh, row.realtime_price_yuan_per_mwh])
+            .filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value));
+        if (values.length === 0) return [0, 100];
+        const minValue = Math.min(...values);
+        const maxValue = Math.max(...values);
+        const padding = Math.max((maxValue - minValue) * 0.12, 8);
+        return [Math.floor(minValue - padding), Math.ceil(maxValue + padding)];
+    }, [reviewChartRows]);
+
+    const reviewTooltipSx = useMemo(() => {
+        if (!reviewTooltipPosition) {
+            return {
+                top: 12,
+                right: 12,
+            };
+        }
+        const tooltipWidth = 236;
+        const placeLeft = reviewTooltipPosition.x <= reviewTooltipPosition.containerWidth - tooltipWidth - 24;
+        return {
+            left: reviewTooltipPosition.x + (placeLeft ? 16 : -16),
+            top: Math.max(reviewTooltipPosition.y - 12, 12),
+            transform: placeLeft ? 'translateY(-100%)' : 'translate(-100%, -100%)',
+        };
+    }, [reviewTooltipPosition]);
+
+    const reviewMetricItems = useMemo(() => {
+        if (!dailyReview) {
+            return [
+                { title: '当日收益', value: '-' },
+                { title: '预期收益', value: '-' },
+                { title: '申报电量', value: '-' },
+                { title: '申报时段数', value: '-' },
+                { title: '时段胜率', value: '-' },
+                { title: '平均价差', value: '-' },
+                { title: '平均申报电量', value: '-' },
+                { title: '平均时段收益', value: '-' },
+                { title: '单位电量收益', value: '-' },
+                { title: '盈利金额', value: '-' },
+                { title: '亏损金额', value: '-' },
+                { title: '盈亏比', value: '-' },
+                { title: '最大时段盈利', value: '-' },
+                { title: '最大时段亏损', value: '-' },
+                { title: '最大盈亏比', value: '-' },
+                { title: '盈利时段平均', value: '-' },
+                { title: '亏损时段平均', value: '-' },
+                { title: '平均盈亏比', value: '-' },
+            ];
+        }
+        const rows = dailyReview.chart_rows;
+        const realizedValues = rows.map((row) => row.period_pnl_yuan ?? 0);
+        const activeRows = rows.filter((row) => row.bid_mwh > 0);
+        const profitValues = realizedValues.filter((value) => value > 0);
+        const lossValues = realizedValues.filter((value) => value < 0);
+        const totalBidMwh = dailyReview.summary.total_bid_mwh ?? 0;
+        const avgPeriodPnl = rows.length > 0 ? dailyReview.summary.realized_pnl_yuan / rows.length : 0;
+        const avgBidMwh = activeRows.length > 0 ? totalBidMwh / activeRows.length : 0;
+        const totalSettledPeriods = dailyReview.summary.win_periods + dailyReview.summary.loss_periods;
+        const totalProfit = profitValues.reduce((sum, value) => sum + value, 0);
+        const totalLoss = Math.abs(lossValues.reduce((sum, value) => sum + value, 0));
+        const avgProfit = profitValues.length > 0 ? totalProfit / profitValues.length : 0;
+        const avgLoss = lossValues.length > 0 ? Math.abs(lossValues.reduce((sum, value) => sum + value, 0) / lossValues.length) : 0;
+        const maxProfit = Math.max(...realizedValues, 0);
+        const maxLoss = Math.min(...realizedValues, 0);
+        return [
+            { title: '当日收益', value: formatProfitAmountWan(dailyReview.summary.realized_pnl_yuan), color: dailyReview.summary.realized_pnl_yuan >= 0 ? '#dc2626' : '#2563eb' },
+            { title: '预期收益', value: formatProfitAmountWan(dailyReview.summary.expected_pnl_yuan) },
+            { title: '申报电量', value: `${totalBidMwh.toFixed(1)} MWh` },
+            { title: '申报时段数', value: `${activeRows.length}` },
+            { title: '时段胜率', value: totalSettledPeriods > 0 ? formatProfitPercent(dailyReview.summary.win_periods / totalSettledPeriods) : '-' },
+            { title: '平均价差', value: `${dailyReview.summary.avg_spread_yuan_per_mwh.toFixed(2)} 元/MWh` },
+            { title: '平均申报电量', value: `${avgBidMwh.toFixed(2)} MWh` },
+            { title: '平均时段收益', value: formatProfitAmountWan(avgPeriodPnl) },
+            { title: '单位电量收益', value: totalBidMwh > 0 ? `${(dailyReview.summary.realized_pnl_yuan / totalBidMwh).toFixed(3)} 元/MWh` : '-' },
+            { title: '盈利金额', value: formatProfitAmountWan(totalProfit), color: '#dc2626' },
+            { title: '亏损金额', value: totalLoss > 0 ? formatProfitAmountWan(-totalLoss) : '-', color: '#2563eb' },
+            { title: '盈亏比', value: totalLoss > 0 ? formatProfitRatio(totalProfit / totalLoss) : '-' },
+            { title: '最大时段盈利', value: formatProfitAmountWan(maxProfit), color: '#dc2626' },
+            { title: '最大时段亏损', value: maxLoss < 0 ? formatProfitAmountWan(maxLoss) : '-', color: '#2563eb' },
+            { title: '最大盈亏比', value: maxLoss < 0 ? formatProfitRatio(maxProfit / Math.abs(maxLoss)) : '-' },
+            { title: '盈利时段平均', value: profitValues.length > 0 ? formatProfitAmountWan(avgProfit) : '-' },
+            { title: '亏损时段平均', value: lossValues.length > 0 ? formatProfitAmountWan(-avgLoss) : '-', color: '#2563eb' },
+            { title: '平均盈亏比', value: avgLoss > 0 ? formatProfitRatio(avgProfit / avgLoss) : '-' },
+        ];
+    }, [dailyReview]);
+
     const refreshTradeSources = async () => {
         const list = await dayAheadBidApi.getTradeSources();
         setTradeSources(list);
@@ -379,6 +483,11 @@ export const DayAheadSimulationPage: React.FC = () => {
         setReviewTargetDate(new Date(date));
         setReviewTab(0);
         setActivePanel(2);
+    };
+
+    const shiftReviewDate = (days: number) => {
+        if (!reviewTargetDate) return;
+        setReviewTargetDate(addDays(reviewTargetDate, days));
     };
 
     const openCreateDialog = () => {
@@ -521,6 +630,25 @@ export const DayAheadSimulationPage: React.FC = () => {
     const handleProfitContainerMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
         const rect = event.currentTarget.getBoundingClientRect();
         setProfitTooltipPosition({
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+            containerWidth: rect.width,
+        });
+    };
+
+    const handleReviewMouseMove = (event: any) => {
+        if (!event || typeof event.activeLabel !== 'number') return;
+        setReviewHoveredPeriod(event.activeLabel);
+    };
+
+    const handleReviewMouseLeave = () => {
+        setReviewHoveredPeriod(null);
+        setReviewTooltipPosition(null);
+    };
+
+    const handleReviewContainerMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setReviewTooltipPosition({
             x: event.clientX - rect.left,
             y: event.clientY - rect.top,
             containerWidth: rect.width,
@@ -689,8 +817,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                 </Paper>
 
                 <Box sx={{ display: 'flex', flexDirection: { xs: 'column', xl: 'row' }, gap: 1.5, minHeight: 0, flex: 1 }}>
-                    <Paper variant="outlined" sx={{ p: 1.5, flex: 1.2, display: 'flex', flexDirection: 'column', minHeight: 0, borderRadius: 2, overflow: 'hidden', backgroundColor: 'background.paper' }}>
-                            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>未申报曲线</Typography>
+                    <Paper variant="outlined" sx={{ p: { xs: 1.25, sm: 1.5 }, flex: 1.2, display: 'flex', flexDirection: 'column', minHeight: 0, borderRadius: 2, overflow: 'hidden', backgroundColor: 'background.paper' }}>
+                            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>申报曲线</Typography>
                             {simulation.trade_type === 'auto' && <Alert severity="info" sx={{ mb: 1.25, flexShrink: 0 }}>自动策略申报只读展示，不支持前端编辑。</Alert>}
                             {simulation.trade_type === 'manual' && !canEdit && <Alert severity="warning" sx={{ mb: 1.25, flexShrink: 0 }}>当前账号缺少写权限，仅支持查看人工方案。</Alert>}
                             {simulation.trade_type === 'manual' && canEdit && !simulation.is_editable && <Alert severity="warning" sx={{ mb: 1.25, flexShrink: 0 }}>{simulation.lock_reason || '当前不可编辑'}</Alert>}
@@ -705,8 +833,12 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 onMouseLeave={handleSimulationMouseLeave}
                                 sx={{
                                     flex: 1,
-                                    minHeight: 260,
+                                    height: { xs: 'auto', md: '100%' },
+                                    minHeight: { xs: 420, sm: 460, md: 260 },
                                     position: 'relative',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    overflow: 'hidden',
                                     ...(simulationFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1300, backgroundColor: 'background.paper', p: 2 }),
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
@@ -723,8 +855,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             zIndex: 3,
                                             px: 1.5,
                                             py: 1.25,
-                                            minWidth: 188,
-                                            maxWidth: 220,
+                                            minWidth: { xs: 0, md: 188 },
+                                            maxWidth: { xs: 'calc(100% - 16px)', md: 220 },
                                             pointerEvents: 'none',
                                             boxShadow: '0 12px 28px rgba(15,23,42,0.12)',
                                             ...simulationTooltipSx,
@@ -735,7 +867,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         <Typography variant="body2">申报电量：{simulationHoveredRow.bidMwh.toFixed(1)} MWh</Typography>
                                     </Paper>
                                 )}
-                                <Box sx={{ height: '58%' }}>
+                                <Box sx={{ height: { md: '58%' }, flex: { xs: '0 0 240px', sm: '0 0 270px', md: '0 0 auto' }, minHeight: { xs: 240, sm: 270, md: 0 } }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={simulationRows}
@@ -779,7 +911,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
-                                <Box sx={{ height: '42%' }}>
+                                <Box sx={{ height: { md: '42%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 } }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={simulationRows}
@@ -825,15 +957,16 @@ export const DayAheadSimulationPage: React.FC = () => {
                         sx={{
                             p: 0,
                             width: { xs: '100%', xl: 420 },
+                            minWidth: 0,
                             display: 'flex',
                             flexDirection: 'column',
-                            minHeight: 0,
+                            minHeight: { xs: 420, md: 0 },
                             borderRadius: 2,
                             background: 'linear-gradient(180deg, rgba(255,247,237,0.65) 0%, rgba(255,255,255,1) 100%)',
                             overflow: 'hidden',
                         }}
                     >
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0, flex: 1, px: 1.5, pt: 1.5 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, minHeight: 0, flex: 1, px: { xs: 1.25, sm: 1.5 }, pt: { xs: 1.25, sm: 1.5 } }}>
                                 <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, flexShrink: 0 }}>
                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', mb: 1 }}>
                                         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{simulationSelectionLabel}</Typography>
@@ -841,19 +974,33 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             <Button size="small" onClick={clearSimulationSelection}>清除选择</Button>
                                         )}
                                     </Box>
-                                    <Stack direction="row" spacing={0} sx={{ alignItems: 'stretch' }}>
+                                    <Box
+                                        sx={{
+                                            display: 'grid',
+                                            gridTemplateColumns: { xs: 'minmax(0, 1fr) repeat(3, 48px)', sm: 'minmax(0, 1fr) repeat(3, 56px)' },
+                                            alignItems: 'stretch',
+                                            minWidth: 0,
+                                        }}
+                                    >
                                         <TextField
                                             size="small"
                                             placeholder="数值"
                                             value={batchValue}
                                             onChange={(event) => setBatchValue(event.target.value)}
                                             fullWidth
+                                            sx={{
+                                                minWidth: 0,
+                                                '& .MuiOutlinedInput-root': {
+                                                    borderTopRightRadius: 0,
+                                                    borderBottomRightRadius: 0,
+                                                },
+                                            }}
                                             disabled={!simulation.is_editable || !canEdit || simulation.trade_type !== 'manual' || !simulationSelection}
                                         />
-                                        <Button variant="outlined" sx={{ minWidth: 56, borderLeft: 0, borderRadius: 0 }} onClick={() => applySimulationBatch('percent')} disabled={!simulation.is_editable || !canEdit || simulation.trade_type !== 'manual' || !simulationSelection}>%</Button>
-                                        <Button variant="outlined" sx={{ minWidth: 56, borderLeft: 0, borderRadius: 0 }} onClick={() => applySimulationBatch('set')} disabled={!simulation.is_editable || !canEdit || simulation.trade_type !== 'manual' || !simulationSelection}>=</Button>
-                                        <Button variant="outlined" sx={{ minWidth: 56, borderLeft: 0, borderRadius: '0 8px 8px 0' }} onClick={() => applySimulationBatch('add')} disabled={!simulation.is_editable || !canEdit || simulation.trade_type !== 'manual' || !simulationSelection}>+</Button>
-                                    </Stack>
+                                        <Button variant="outlined" sx={{ minWidth: 0, borderLeft: 0, borderRadius: 0, px: 0 }} onClick={() => applySimulationBatch('percent')} disabled={!simulation.is_editable || !canEdit || simulation.trade_type !== 'manual' || !simulationSelection}>%</Button>
+                                        <Button variant="outlined" sx={{ minWidth: 0, borderLeft: 0, borderRadius: 0, px: 0 }} onClick={() => applySimulationBatch('set')} disabled={!simulation.is_editable || !canEdit || simulation.trade_type !== 'manual' || !simulationSelection}>=</Button>
+                                        <Button variant="outlined" sx={{ minWidth: 0, borderLeft: 0, borderRadius: '0 8px 8px 0', px: 0 }} onClick={() => applySimulationBatch('add')} disabled={!simulation.is_editable || !canEdit || simulation.trade_type !== 'manual' || !simulationSelection}>+</Button>
+                                    </Box>
                                 </Paper>
                             <TableContainer sx={{ flex: 1, minHeight: 0, overflow: 'auto', borderTop: 1, borderBottom: 1, borderColor: 'divider' }}>
                                 <Table stickyHeader size="small">
@@ -873,7 +1020,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                                         <TextField size="small" type="number" value={simulationDraft[index] ?? 0} disabled={!simulation.is_editable || !canEdit} onChange={(event) => {
                                                             const next = Number(event.target.value);
                                                             setSimulationDraft((prev) => prev.map((item, itemIndex) => itemIndex === index ? next : item));
-                                                        }} inputProps={{ min: 0, max: 300, step: 0.1, style: { textAlign: 'right' } }} sx={{ width: 110 }} />
+                                                        }} inputProps={{ min: 0, max: 300, step: 0.1, style: { textAlign: 'right' } }} sx={{ width: { xs: 84, sm: 110 } }} />
                                                     ) : (
                                                         <Typography variant="body2" sx={{ fontWeight: 700 }}>{(simulationDraft[index] || 0).toFixed(1)}</Typography>
                                                     )}
@@ -884,7 +1031,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                     </TableBody>
                                 </Table>
                             </TableContainer>
-                                <Stack direction="row" spacing={1.5} sx={{ px: 1.5, pb: 1.5, pt: 0 }}>
+                                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ px: { xs: 1.25, sm: 1.5 }, pb: { xs: 1.25, sm: 1.5 }, pt: 0 }}>
                                     <Button
                                         fullWidth
                                         variant="contained"
@@ -944,10 +1091,10 @@ export const DayAheadSimulationPage: React.FC = () => {
                     }}
                 >
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} useFlexGap flexWrap="wrap" alignItems={{ md: 'center' }}>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                            <DatePicker label="开始日期" value={profitStartDate} onChange={setProfitStartDate} slotProps={{ textField: { size: 'small', sx: { width: 150 } } }} />
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                            <DatePicker label="开始日期" value={profitStartDate} onChange={setProfitStartDate} slotProps={{ textField: { size: 'small', fullWidth: true, sx: { width: { xs: '100%', sm: 150 } } } }} />
                             <Typography variant="body2" color="text.secondary">-</Typography>
-                            <DatePicker label="结束日期" value={profitEndDate} onChange={setProfitEndDate} slotProps={{ textField: { size: 'small', sx: { width: 150 } } }} />
+                            <DatePicker label="结束日期" value={profitEndDate} onChange={setProfitEndDate} slotProps={{ textField: { size: 'small', fullWidth: true, sx: { width: { xs: '100%', sm: 150 } } } }} />
                         </Stack>
                         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                             <Button size="small" variant="outlined" onClick={() => applyProfitRange('thisMonth')}>本月</Button>
@@ -956,7 +1103,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                             <Button size="small" variant="outlined" onClick={() => applyProfitRange('60d')}>60天</Button>
                             <Button size="small" variant="outlined" onClick={() => applyProfitRange('thisYear')}>本年</Button>
                         </Stack>
-                        <ToggleButtonGroup size="small" exclusive value={profitMetric} onChange={(_event, value) => value && setProfitMetric(value)} sx={{ ml: { md: 'auto' } }}>
+                        <ToggleButtonGroup size="small" exclusive value={profitMetric} onChange={(_event, value) => value && setProfitMetric(value)} sx={{ ml: { md: 'auto' }, width: { xs: '100%', sm: 'auto' } }}>
                             <ToggleButton value="amount">金额收益</ToggleButton>
                             <ToggleButton value="unit">兆瓦时收益</ToggleButton>
                         </ToggleButtonGroup>
@@ -978,7 +1125,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                         <Box
                             sx={{
                                 display: 'grid',
-                                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(6, minmax(0, 1fr))' },
+                                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', lg: 'repeat(6, minmax(0, 1fr))' },
                                 gridAutoRows: 'minmax(0, 1fr)',
                                 gap: 0.75,
                                 alignItems: 'stretch',
@@ -1039,7 +1186,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                         <Box>
                             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>策略收益曲线</Typography>
                         </Box>
-                        <Tabs value={profitTab} onChange={(_event, value) => setProfitTab(value)}>
+                        <Tabs value={profitTab} onChange={(_event, value) => setProfitTab(value)} variant="scrollable" scrollButtons="auto">
                             <Tab label="联合图表" />
                             <Tab label="数据表格" />
                         </Tabs>
@@ -1050,9 +1197,12 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 onMouseMove={handleProfitContainerMouseMove}
                                 onMouseLeave={handleProfitMouseLeave}
                                 sx={{
-                                    height: '100%',
-                                    minHeight: 260,
+                                    height: { xs: 'auto', md: '100%' },
+                                    minHeight: { xs: 400, sm: 440, md: 260 },
                                     position: 'relative',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    overflow: 'hidden',
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
                                 }}
@@ -1065,8 +1215,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             zIndex: 3,
                                             px: 1.5,
                                             py: 1.25,
-                                            minWidth: 188,
-                                            maxWidth: 220,
+                                            minWidth: { xs: 0, md: 188 },
+                                            maxWidth: { xs: 'calc(100% - 16px)', md: 220 },
                                             pointerEvents: 'none',
                                             boxShadow: '0 12px 28px rgba(15,23,42,0.12)',
                                             ...profitTooltipSx,
@@ -1077,7 +1227,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         <Typography variant="body2">申报电量：{profitHoveredRow.bidTotalMwh == null ? '-' : `${profitHoveredRow.bidTotalMwh.toFixed(1)} MWh`}</Typography>
                                     </Paper>
                                 )}
-                                <Box sx={{ height: '52%' }}>
+                                <Box sx={{ height: { md: '52%' }, flex: { xs: '0 0 220px', sm: '0 0 250px', md: '0 0 auto' }, minHeight: { xs: 220, sm: 250, md: 0 } }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={profitChartRows}
@@ -1094,7 +1244,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
-                                <Box sx={{ height: '48%' }}>
+                                <Box sx={{ height: { md: '48%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 } }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={profitChartRows}
@@ -1119,8 +1269,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 </Box>
                             </Box>
                         ) : (
-                            <TableContainer sx={{ height: '100%', minHeight: 260, borderRadius: 2, border: 1, borderColor: 'divider' }}>
-                                <Table stickyHeader size="small">
+                            <TableContainer sx={{ height: '100%', minHeight: { xs: 320, md: 260 }, borderRadius: 2, border: 1, borderColor: 'divider', overflowX: 'auto' }}>
+                                <Table stickyHeader size="small" sx={{ minWidth: 760 }}>
                                     <TableHead>
                                         <TableRow>
                                             <TableCell>日期</TableCell>
@@ -1165,7 +1315,6 @@ export const DayAheadSimulationPage: React.FC = () => {
     };
 
     const renderReviewPanel = () => {
-        if (!dailyReview) return <Alert severity="info">请选择策略和日期后查看单日复盘。</Alert>;
         return (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, height: '100%', minHeight: 0 }}>
                 <Paper
@@ -1173,26 +1322,87 @@ export const DayAheadSimulationPage: React.FC = () => {
                     sx={{
                         p: 1.5,
                         borderRadius: 2,
-                        background: 'linear-gradient(135deg, rgba(15,118,110,0.05) 0%, rgba(14,165,233,0.05) 100%)',
+                        background: 'linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(241,245,249,0.96) 100%)',
                     }}
                 >
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} useFlexGap flexWrap="wrap" alignItems={{ md: 'center' }}>
-                        <FormControl size="small" sx={{ minWidth: 240 }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>策略选择</Typography>
-                            <Select value={selectedTradeSourceId} onChange={(event) => setSelectedTradeSourceId(event.target.value)}>
-                                {tradeSources.map((item) => <MenuItem key={item.trade_source_id} value={item.trade_source_id}>{item.trade_source_name}</MenuItem>)}
-                            </Select>
-                        </FormControl>
-                        <DatePicker label="日期选择" value={reviewTargetDate} onChange={setReviewTargetDate} slotProps={{ textField: { size: 'small', sx: { width: 180 } } }} />
+                        <Stack
+                            direction="row"
+                            spacing={1}
+                            alignItems="center"
+                            sx={{
+                                width: { xs: '100%', sm: 'auto' },
+                                minWidth: 0,
+                            }}
+                        >
+                            <IconButton size="small" onClick={() => shiftReviewDate(-1)} sx={{ border: 1, borderColor: 'divider' }}>
+                                <ArrowLeftIcon fontSize="small" />
+                            </IconButton>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <DatePicker label="日期选择" value={reviewTargetDate} onChange={setReviewTargetDate} slotProps={{ textField: { size: 'small', fullWidth: true, sx: { width: { xs: '100%', sm: 180 } } } }} />
+                            </Box>
+                            <IconButton size="small" onClick={() => shiftReviewDate(1)} sx={{ border: 1, borderColor: 'divider' }}>
+                                <ArrowRightIcon fontSize="small" />
+                            </IconButton>
+                        </Stack>
                     </Stack>
                 </Paper>
-                <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap">
-                    <MetricCard title="预期收益" value={`${dailyReview.summary.expected_pnl_yuan.toFixed(2)} 元`} />
-                    <MetricCard title="实际收益" value={`${dailyReview.summary.realized_pnl_yuan.toFixed(2)} 元`} color={dailyReview.summary.realized_pnl_yuan >= 0 ? '#166534' : '#b91c1c'} />
-                    <MetricCard title="总电量" value={`${dailyReview.summary.total_bid_mwh.toFixed(1)} MWh`} />
-                    <MetricCard title="正收益时段数" value={`${dailyReview.summary.win_periods}`} />
-                    <MetricCard title="负收益时段数" value={`${dailyReview.summary.loss_periods}`} />
-                </Stack>
+                <Paper
+                    variant="outlined"
+                    sx={{
+                        p: 0,
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        backgroundColor: 'background.paper',
+                    }}
+                >
+                    <Box sx={{ px: 1.5, py: 1.25, backgroundColor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>复盘指标</Typography>
+                    </Box>
+                    <Box sx={{ p: 1.25 }}>
+                        <Box
+                            sx={{
+                                display: 'grid',
+                                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))' },
+                                gap: 0.75,
+                            }}
+                        >
+                            {reviewMetricItems.map((item) => (
+                                <Box
+                                    key={item.title}
+                                    sx={{
+                                        px: 1.25,
+                                        py: 1,
+                                        borderRadius: 1.5,
+                                        border: '1px solid',
+                                        borderColor: 'divider',
+                                        bgcolor: 'rgba(248,250,252,0.9)',
+                                        minHeight: 0,
+                                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
+                                        overflow: 'hidden',
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                                        {item.title}
+                                    </Typography>
+                                    <Typography
+                                        variant="body2"
+                                        sx={{
+                                            mt: 0.25,
+                                            fontWeight: 700,
+                                            color: item.color || 'text.primary',
+                                            fontSize: { xs: '0.92rem', md: '1rem' },
+                                            lineHeight: 1.2,
+                                            wordBreak: 'break-word',
+                                        }}
+                                    >
+                                        {item.value}
+                                    </Typography>
+                                </Box>
+                            ))}
+                        </Box>
+                    </Box>
+                </Paper>
                 <Paper
                     variant="outlined"
                     sx={{
@@ -1204,81 +1414,140 @@ export const DayAheadSimulationPage: React.FC = () => {
                         background: 'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,0.96) 100%)',
                     }}
                 >
-                    <Box sx={{ px: 1.5, pt: 1.25, display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                         <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>单日复盘工作台</Typography>
-                            <Typography variant="body2" color="text.secondary">图表与时段收益表同面板切换，便于对照查看单日结果。</Typography>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>复盘图表</Typography>
                         </Box>
-                        <Tabs value={reviewTab} onChange={(_event, value) => setReviewTab(value)}>
-                            <Tab label="联合图表" />
+                        <Tabs value={reviewTab} onChange={(_event, value) => setReviewTab(value)} variant="scrollable" scrollButtons="auto">
+                            <Tab label="曲线图表" />
                             <Tab label="时段收益表" />
                         </Tabs>
                     </Box>
-                    <Box sx={{ p: 1.5, flex: 1, minHeight: 0 }}>
+                    <Box sx={{ pt: 1, px: 1.5, pb: 0.75, flex: 1, minHeight: 0 }}>
                         {reviewTab === 0 ? (
-                            <Box sx={{ height: 440, '& .recharts-surface:focus': { outline: 'none' }, '& *:focus': { outline: 'none !important' } }}>
-                                <Box sx={{ height: '54%' }}>
+                            <Box
+                                onMouseMove={handleReviewContainerMouseMove}
+                                onMouseLeave={handleReviewMouseLeave}
+                                sx={{
+                                    height: { xs: 'auto', md: '100%' },
+                                    minHeight: { xs: 420, sm: 460, md: 260 },
+                                    position: 'relative',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    overflow: 'hidden',
+                                    '& .recharts-surface:focus': { outline: 'none' },
+                                    '& *:focus': { outline: 'none !important' },
+                                }}
+                            >
+                                {reviewHoveredRow && (
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            position: 'absolute',
+                                            zIndex: 3,
+                                            px: 1.5,
+                                            py: 1.25,
+                                            minWidth: { xs: 0, md: 188 },
+                                            maxWidth: { xs: 'calc(100% - 16px)', md: 236 },
+                                            pointerEvents: 'none',
+                                            boxShadow: '0 12px 28px rgba(15,23,42,0.12)',
+                                            ...reviewTooltipSx,
+                                        }}
+                                    >
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                            时段 {reviewHoveredRow.period} {reviewHoveredRow.time_label}
+                                        </Typography>
+                                        <Typography variant="body2">经济出清价格：{reviewHoveredRow.econ_price_yuan_per_mwh.toFixed(2)} 元/MWh</Typography>
+                                        <Typography variant="body2">实时现货价格：{reviewHoveredRow.realtime_price_yuan_per_mwh.toFixed(2)} 元/MWh</Typography>
+                                        <Typography variant="body2">实时减日前价差：{reviewHoveredRow.spread_yuan_per_mwh.toFixed(2)} 元/MWh</Typography>
+                                        <Typography variant="body2">申报电量：{reviewHoveredRow.bid_mwh.toFixed(1)} MWh</Typography>
+                                        <Typography variant="body2">时段收益：{reviewHoveredRow.period_pnl_yuan.toFixed(2)} 元</Typography>
+                                    </Paper>
+                                )}
+                                {!dailyReview && (
+                                    <Alert severity="info" sx={{ mb: 1.25, flexShrink: 0 }}>
+                                        当前策略在所选日期暂无交易数据。
+                                    </Alert>
+                                )}
+                                <Box sx={{ height: { md: '54%' }, flex: { xs: '0 0 240px', sm: '0 0 270px', md: '0 0 auto' }, minHeight: { xs: 240, sm: 270, md: 0 } }}>
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={dailyReview.chart_rows} syncId="daily-review" margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+                                        <ComposedChart
+                                            data={reviewChartRows}
+                                            syncId="daily-review"
+                                            margin={{ top: 12, right: 12, left: 0, bottom: 0 }}
+                                            onMouseMove={handleReviewMouseMove}
+                                            onMouseLeave={handleReviewMouseLeave}
+                                        >
                                             <CartesianGrid strokeDasharray="3 3" />
                                             <XAxis dataKey="period" hide />
-                                            <YAxis tick={{ fontSize: 12 }} />
-                                            <Tooltip formatter={(value: number) => value.toFixed(2)} />
-                                            <Line type="monotone" dataKey="price_forecast_yuan_per_mwh" stroke="#1d4ed8" dot={false} name="预测价格" />
-                                            <Line type="monotone" dataKey="econ_price_yuan_per_mwh" stroke="#ea580c" dot={false} name="经济出清价格" />
-                                            <Line type="monotone" dataKey="realtime_price_yuan_per_mwh" stroke="#6b7280" dot={false} name="实时价格" />
+                                            <YAxis tick={{ fontSize: 12 }} domain={reviewPriceDomain} />
+                                            {reviewHoveredPeriod != null && <ReferenceLine x={reviewHoveredPeriod} stroke="#64748b" strokeDasharray="4 4" />}
+                                            <Area type="monotone" dataKey="positivePriceBase" stackId="positiveSpread" fill="transparent" stroke="none" />
+                                            <Area type="monotone" dataKey="positivePriceGap" stackId="positiveSpread" fill="#86efac" fillOpacity={0.55} stroke="none" />
+                                            <Area type="monotone" dataKey="negativePriceBase" stackId="negativeSpread" fill="transparent" stroke="none" />
+                                            <Area type="monotone" dataKey="negativePriceGap" stackId="negativeSpread" fill="#fdba74" fillOpacity={0.55} stroke="none" />
+                                            <Line type="monotone" dataKey="econ_price_yuan_per_mwh" stroke="#2563eb" strokeWidth={2.2} dot={false} name="经济出清价格" />
+                                            <Line type="monotone" dataKey="realtime_price_yuan_per_mwh" stroke="#475569" strokeWidth={2.2} dot={false} name="实时现货价格" />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
-                                <Box sx={{ height: '24%' }}>
+                                <Box sx={{ height: { md: '46%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 } }}>
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={dailyReview.chart_rows} syncId="daily-review" margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                                        <ComposedChart
+                                            data={reviewChartRows}
+                                            syncId="daily-review"
+                                            margin={{ top: 6, right: 12, left: 0, bottom: 0 }}
+                                            onMouseMove={handleReviewMouseMove}
+                                            onMouseLeave={handleReviewMouseLeave}
+                                        >
                                             <CartesianGrid strokeDasharray="3 3" />
-                                            <XAxis dataKey="period" hide />
+                                            <XAxis dataKey="period" interval={3} tick={{ fontSize: 11 }} height={36} />
                                             <YAxis tick={{ fontSize: 12 }} />
-                                            <Bar dataKey="bid_mwh" fill="#0f766e" name="申报电量" />
-                                        </ComposedChart>
-                                    </ResponsiveContainer>
-                                </Box>
-                                <Box sx={{ height: '22%' }}>
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={dailyReview.chart_rows} syncId="daily-review" margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
-                                            <CartesianGrid strokeDasharray="3 3" />
-                                            <XAxis dataKey="period" interval={3} tick={{ fontSize: 12 }} />
-                                            <YAxis tick={{ fontSize: 12 }} />
-                                            <Bar dataKey="period_pnl_yuan" fill="#f59e0b" name="时段收益" />
+                                            {reviewHoveredPeriod != null && <ReferenceLine x={reviewHoveredPeriod} stroke="#64748b" strokeDasharray="4 4" />}
+                                            <Bar dataKey="bid_mwh" name="申报电量">
+                                                {reviewChartRows.map((row) => (
+                                                    <Cell key={`review-bar-${row.period}`} fill={row.barColor} />
+                                                ))}
+                                            </Bar>
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
                             </Box>
                         ) : (
-                            <TableContainer sx={{ maxHeight: 440, borderRadius: 2 }}>
-                                <Table stickyHeader size="small">
+                            <TableContainer sx={{ height: '100%', minHeight: { xs: 320, md: 260 }, borderRadius: 2, border: 1, borderColor: 'divider', overflowX: 'auto' }}>
+                                <Table stickyHeader size="small" sx={{ minWidth: 760 }}>
                                     <TableHead>
                                         <TableRow>
                                             <TableCell>时段</TableCell>
                                             <TableCell>时间</TableCell>
-                                            <TableCell align="right">预测价</TableCell>
                                             <TableCell align="right">经济价</TableCell>
                                             <TableCell align="right">实时价</TableCell>
+                                            <TableCell align="right">价差</TableCell>
                                             <TableCell align="right">申报电量</TableCell>
                                             <TableCell align="right">时段收益</TableCell>
                                             <TableCell align="right">结果</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {dailyReview.period_profit_rows.map((row) => (
+                                        {(dailyReview?.period_profit_rows ?? []).map((row) => (
                                             <TableRow key={row.period} hover>
                                                 <TableCell>{row.period}</TableCell>
                                                 <TableCell>{row.time_label}</TableCell>
-                                                <TableCell align="right">{row.price_forecast_yuan_per_mwh.toFixed(2)}</TableCell>
                                                 <TableCell align="right">{row.econ_price_yuan_per_mwh.toFixed(2)}</TableCell>
                                                 <TableCell align="right">{row.realtime_price_yuan_per_mwh.toFixed(2)}</TableCell>
+                                                <TableCell align="right">{row.spread_yuan_per_mwh.toFixed(2)}</TableCell>
                                                 <TableCell align="right">{row.bid_mwh.toFixed(1)}</TableCell>
                                                 <TableCell align="right">{row.period_pnl_yuan.toFixed(2)}</TableCell>
                                                 <TableCell align="right">{row.result_flag}</TableCell>
                                             </TableRow>
                                         ))}
+                                        {!dailyReview && (
+                                            <TableRow>
+                                                <TableCell colSpan={8} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                                                    当前策略在所选日期暂无交易数据
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
                                     </TableBody>
                                 </Table>
                             </TableContainer>
@@ -1296,28 +1565,31 @@ export const DayAheadSimulationPage: React.FC = () => {
                     height: isMobile ? 'auto' : 'calc(100vh - 64px - 49px)',
                     minHeight: isMobile ? '100%' : 0,
                     width: '100%',
+                    maxWidth: '100%',
                     bgcolor: 'background.default',
                     overflowX: 'hidden',
                     overflowY: isMobile ? 'auto' : 'hidden',
                 }}
             >
-                <Box sx={isMobile ? mobileLayoutSx : desktopLayoutSx}>
+                <Box sx={{ ...(isMobile ? mobileLayoutSx : desktopLayoutSx), maxWidth: '100%' }}>
                     {isMobile && <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>交易策略 / 日前模拟交易</Typography>}
                     {feedback && <Alert severity={feedback.severity} onClose={() => setFeedback(null)}>{feedback.message}</Alert>}
-                    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: { xs: 1.5, md: 1.5 }, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: { xs: 1.5, md: 1.5 }, flex: 1, minHeight: 0, minWidth: 0, overflow: { xs: 'visible', md: 'hidden' } }}>
                     <Paper
                         variant="outlined"
                         sx={{
                             width: { xs: '100%', md: 300 },
                             display: 'flex',
                             flexDirection: 'column',
+                            minWidth: 0,
                             minHeight: { md: 0 },
+                            maxHeight: { xs: 320, md: 'none' },
                             overflow: 'hidden',
                             borderRadius: 2,
                             background: 'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,0.96) 100%)',
                         }}
                     >
-                        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ p: { xs: 1.25, sm: 1.5 }, display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>策略列表</Typography>
                             {canEdit && <>
                                 <IconButton size="small" onClick={() => setManagementOpen((prev) => !prev)}><SettingsOutlinedIcon fontSize="small" /></IconButton>
@@ -1327,7 +1599,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                         <Divider />
                         <List sx={{ flex: 1, overflowY: 'auto', p: 0 }}>
                             {tradeSources.map((item) => (
-                                <ListItemButton key={item.trade_source_id} selected={selectedTradeSourceId === item.trade_source_id} onClick={() => setSelectedTradeSourceId(item.trade_source_id)} sx={{ alignItems: 'flex-start', borderBottom: 1, borderColor: 'divider' }}>
+                                <ListItemButton key={item.trade_source_id} selected={selectedTradeSourceId === item.trade_source_id} onClick={() => setSelectedTradeSourceId(item.trade_source_id)} sx={{ alignItems: 'flex-start', borderBottom: 1, borderColor: 'divider', py: { xs: 1, sm: 1.25 } }}>
                                     <ListItemText
                                         primary={<Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%' }}>
                                             <Typography variant="body2" sx={{ fontWeight: 700, color: item.trade_source_status === '停用' ? 'text.disabled' : 'text.primary', flex: 1 }}>
@@ -1335,6 +1607,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             </Typography>
                                             <Chip size="small" label={item.next_day_declare_status} color={item.next_day_declare_status === '已申报' ? 'success' : 'warning'} />
                                         </Stack>}
+                                        secondaryTypographyProps={{ noWrap: true }}
                                         secondary={item.strategy_code || item.trade_source_id}
                                     />
                                     {managementOpen && canEdit && <Stack direction="row" spacing={0.5} sx={{ ml: 1 }}>
@@ -1345,16 +1618,16 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 </ListItemButton>
                             ))}
                         </List>
-                        {canEdit && <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider' }}>
+                        {canEdit && <Box sx={{ p: { xs: 1.25, sm: 1.5 }, borderTop: 1, borderColor: 'divider' }}>
                             <Button fullWidth variant="outlined" startIcon={<AddIcon />} onClick={openCreateDialog}>新增策略</Button>
                         </Box>}
                     </Paper>
 
-                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, gap: 1.25, overflow: 'hidden' }}>
+                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, gap: 1.25, overflow: { xs: 'visible', md: 'hidden' } }}>
                         <Paper
                             variant="outlined"
                             sx={{
-                                px: 1,
+                                px: { xs: 0.75, sm: 1 },
                                 py: 0.25,
                                 flexShrink: 0,
                                 borderRadius: 2,
@@ -1368,17 +1641,21 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 scrollButtons="auto"
                                 sx={{
                                     minHeight: 40,
+                                    '& .MuiTabs-flexContainer': {
+                                        gap: { xs: 0.25, sm: 0.5 },
+                                    },
                                     '& .MuiTab-root': {
                                         minHeight: 40,
                                         py: 0.5,
-                                        px: 1.25,
+                                        px: { xs: 1, sm: 1.25 },
+                                        minWidth: { xs: 92, sm: 'auto' },
                                     },
                                 }}
                             >
                                 <Tab icon={<TimelineOutlinedIcon />} iconPosition="start" label="模拟申报" />
                                 <Tab icon={<AnalyticsOutlinedIcon />} iconPosition="start" label="策略收益" />
                                 <Tab icon={<StyleOutlinedIcon />} iconPosition="start" label="单日复盘" />
-                                <Tab label="策略对比" />
+                                {!isMobile && <Tab label="策略对比" />}
                             </Tabs>
                         </Paper>
                         <Box
@@ -1386,13 +1663,14 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 p: 0,
                                 flex: 1,
                                 minHeight: 0,
-                                overflow: 'auto',
+                                minWidth: 0,
+                                overflow: { xs: 'visible', md: 'auto' },
                             }}
                         >
                             {activePanel === 0 && renderSimulationPanel()}
                             {activePanel === 1 && renderProfitPanel()}
                             {activePanel === 2 && renderReviewPanel()}
-                            {activePanel === 3 && (
+                            {!isMobile && activePanel === 3 && (
                                 <Paper
                                     variant="outlined"
                                     sx={{
