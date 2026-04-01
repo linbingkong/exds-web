@@ -86,19 +86,6 @@ const MetricCard: React.FC<{ title: string; value: string; color?: string }> = (
     </Paper>
 );
 
-const SimulationTooltip: React.FC<any> = ({ active, payload }) => {
-    if (!active || !payload?.length) return null;
-    const row = payload[0]?.payload;
-    if (!row) return null;
-    return (
-        <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>时段 {row.period}</Typography>
-            <Typography variant="body2">价格：{row.priceForecast.toFixed(1)} 元/MWh</Typography>
-            <Typography variant="body2">电量：{row.bidMwh.toFixed(1)} MWh</Typography>
-        </Paper>
-    );
-};
-
 export const DayAheadSimulationPage: React.FC = () => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -120,6 +107,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     const [simulationRefAreaLeft, setSimulationRefAreaLeft] = useState<number | null>(null);
     const [simulationRefAreaRight, setSimulationRefAreaRight] = useState<number | null>(null);
     const [simulationSelection, setSimulationSelection] = useState<{ start: number; end: number } | null>(null);
+    const [simulationHoveredPeriod, setSimulationHoveredPeriod] = useState<number | null>(null);
 
     const range = useMemo(() => dayAheadBidApi.buildDefaultProfitRange(), []);
     const [profitStartDate, setProfitStartDate] = useState<Date | null>(new Date(range.start_date));
@@ -133,6 +121,11 @@ export const DayAheadSimulationPage: React.FC = () => {
     const [reviewTargetDate, setReviewTargetDate] = useState<Date | null>(addDays(new Date(), -1));
     const [reviewTab, setReviewTab] = useState(0);
     const [dailyReview, setDailyReview] = useState<DailyReviewDetail | null>(null);
+
+    const strategyDetailCacheRef = useRef<Record<string, TradeSourceDetail | null>>({});
+    const simulationCacheRef = useRef<Record<string, SimulationDetail>>({});
+    const profitCacheRef = useRef<Record<string, { summary: ProfitSummary; curve: ProfitCurvePoint[]; rows: ProfitDailyRow[] }>>({});
+    const reviewCacheRef = useRef<Record<string, DailyReviewDetail>>({});
 
     const simulationChartRef = useRef<HTMLDivElement>(null);
     const simulationFullscreen = useChartFullscreen({
@@ -155,45 +148,96 @@ export const DayAheadSimulationPage: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (!selectedTradeSourceId) return;
-        void dayAheadBidApi.getTradeSourceDetail(selectedTradeSourceId).then(setCurrentDetail).catch((error) => {
-            console.error(error);
-            setCurrentDetail(null);
-        });
-        void dayAheadBidApi.getNextDaySimulation(selectedTradeSourceId).then((data) => {
+        if (!selectedTradeSourceId || activePanel !== 0) return;
+        let cancelled = false;
+        const cachedDetail = strategyDetailCacheRef.current[selectedTradeSourceId];
+        const cachedSimulation = simulationCacheRef.current[selectedTradeSourceId];
+        if (cachedDetail !== undefined) {
+            setCurrentDetail(cachedDetail);
+        }
+        if (cachedSimulation) {
+            setSimulation(cachedSimulation);
+            setSimulationDraft(cachedSimulation.bid_mwh_30m);
+            return;
+        }
+        void Promise.all([
+            dayAheadBidApi.getTradeSourceDetail(selectedTradeSourceId),
+            dayAheadBidApi.getNextDaySimulation(selectedTradeSourceId),
+        ]).then(([detail, data]) => {
+            if (cancelled) return;
+            strategyDetailCacheRef.current[selectedTradeSourceId] = detail;
+            simulationCacheRef.current[selectedTradeSourceId] = data;
+            setCurrentDetail(detail);
             setSimulation(data);
             setSimulationDraft(data.bid_mwh_30m);
         }).catch((error) => {
+            if (cancelled) return;
             console.error(error);
+            setCurrentDetail(null);
             setFeedback({ severity: 'error', message: '加载模拟申报数据失败' });
         });
-    }, [selectedTradeSourceId]);
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedTradeSourceId, activePanel]);
 
     useEffect(() => {
-        if (!selectedTradeSourceId || !profitStartDate || !profitEndDate) return;
+        if (!selectedTradeSourceId || !profitStartDate || !profitEndDate || activePanel !== 1) return;
+        let cancelled = false;
         const startDate = format(profitStartDate, 'yyyy-MM-dd');
         const endDate = format(profitEndDate, 'yyyy-MM-dd');
+        const cacheKey = `${selectedTradeSourceId}|${startDate}|${endDate}|${profitMetric}`;
+        const cached = profitCacheRef.current[cacheKey];
+        if (cached) {
+            setProfitSummary(cached.summary);
+            setProfitCurve(cached.curve);
+            setProfitRows(cached.rows);
+            return;
+        }
         void Promise.all([
             dayAheadBidApi.getProfitSummary(selectedTradeSourceId, startDate, endDate),
             dayAheadBidApi.getProfitCurve(selectedTradeSourceId, startDate, endDate, profitMetric),
             dayAheadBidApi.getProfitDaily(selectedTradeSourceId, startDate, endDate),
         ]).then(([summary, curve, daily]) => {
+            if (cancelled) return;
+            const nextValue = { summary, curve: curve.points, rows: daily.rows };
+            profitCacheRef.current[cacheKey] = nextValue;
             setProfitSummary(summary);
             setProfitCurve(curve.points);
             setProfitRows(daily.rows);
         }).catch((error) => {
+            if (cancelled) return;
             console.error(error);
             setFeedback({ severity: 'error', message: '加载策略收益数据失败' });
         });
-    }, [selectedTradeSourceId, profitStartDate, profitEndDate, profitMetric]);
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedTradeSourceId, profitStartDate, profitEndDate, profitMetric, activePanel]);
 
     useEffect(() => {
-        if (!selectedTradeSourceId || !reviewTargetDate) return;
-        void dayAheadBidApi.getDailyReview(selectedTradeSourceId, format(reviewTargetDate, 'yyyy-MM-dd')).then(setDailyReview).catch((error) => {
+        if (!selectedTradeSourceId || !reviewTargetDate || activePanel !== 2) return;
+        let cancelled = false;
+        const targetDate = format(reviewTargetDate, 'yyyy-MM-dd');
+        const cacheKey = `${selectedTradeSourceId}|${targetDate}`;
+        const cached = reviewCacheRef.current[cacheKey];
+        if (cached) {
+            setDailyReview(cached);
+            return;
+        }
+        void dayAheadBidApi.getDailyReview(selectedTradeSourceId, targetDate).then((data) => {
+            if (cancelled) return;
+            reviewCacheRef.current[cacheKey] = data;
+            setDailyReview(data);
+        }).catch((error) => {
+            if (cancelled) return;
             console.error(error);
             setFeedback({ severity: 'error', message: '加载单日复盘数据失败' });
         });
-    }, [selectedTradeSourceId, reviewTargetDate]);
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedTradeSourceId, reviewTargetDate, activePanel]);
 
     const simulationRows = useMemo(() => {
         if (!simulation) return [];
@@ -207,7 +251,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     }, [simulation, simulationDraft]);
 
     const simulationSelectionLabel = useMemo(() => {
-        if (!simulationSelection) return '未选择区域（请在左图框选）';
+        if (!simulationSelection) return '未选择区域（请在图表中框选）';
         const startMinutes = (simulationSelection.start + 1) * 30;
         const endMinutes = (simulationSelection.end + 2) * 30;
         const formatMinutes = (minutes: number) => {
@@ -218,6 +262,11 @@ export const DayAheadSimulationPage: React.FC = () => {
         };
         return `已选择区域：${formatMinutes(startMinutes)} - ${formatMinutes(endMinutes)}`;
     }, [simulationSelection]);
+
+    const simulationHoveredRow = useMemo(
+        () => simulationRows.find((row) => row.period === simulationHoveredPeriod) ?? null,
+        [simulationHoveredPeriod, simulationRows],
+    );
 
     const refreshTradeSources = async () => {
         const list = await dayAheadBidApi.getTradeSources();
@@ -296,8 +345,12 @@ export const DayAheadSimulationPage: React.FC = () => {
     const resetSimulationDraft = async () => {
         if (!simulation || !canEdit || simulation.trade_type !== 'manual') return;
         const next = await dayAheadBidApi.resetManualSimulation(simulation.trade_source_id, simulation.target_date);
+        const detail = await dayAheadBidApi.getTradeSourceDetail(simulation.trade_source_id);
+        simulationCacheRef.current[simulation.trade_source_id] = next;
+        strategyDetailCacheRef.current[simulation.trade_source_id] = detail;
         setSimulation(next);
         setSimulationDraft(next.bid_mwh_30m);
+        setCurrentDetail(detail);
         setSimulationSelection(null);
         setSimulationRefAreaLeft(null);
         setSimulationRefAreaRight(null);
@@ -308,13 +361,17 @@ export const DayAheadSimulationPage: React.FC = () => {
 
     const handleSimulationMouseDown = (event: any) => {
         if (!event || typeof event.activeLabel !== 'number') return;
+        setSimulationHoveredPeriod(event.activeLabel);
         setSimulationRefAreaLeft(event.activeLabel);
         setSimulationRefAreaRight(null);
     };
 
     const handleSimulationMouseMove = (event: any) => {
-        if (simulationRefAreaLeft == null || !event || typeof event.activeLabel !== 'number') return;
-        setSimulationRefAreaRight(event.activeLabel);
+        if (!event || typeof event.activeLabel !== 'number') return;
+        setSimulationHoveredPeriod(event.activeLabel);
+        if (simulationRefAreaLeft != null) {
+            setSimulationRefAreaRight(event.activeLabel);
+        }
     };
 
     const handleSimulationMouseUp = () => {
@@ -332,6 +389,13 @@ export const DayAheadSimulationPage: React.FC = () => {
         setSimulationRefAreaRight(null);
     };
 
+    const handleSimulationMouseLeave = () => {
+        setSimulationHoveredPeriod(null);
+        if (simulationRefAreaLeft == null) {
+            setSimulationRefAreaRight(null);
+        }
+    };
+
     const clearSimulationSelection = () => {
         setSimulationSelection(null);
         setSimulationRefAreaLeft(null);
@@ -342,8 +406,12 @@ export const DayAheadSimulationPage: React.FC = () => {
     const saveSimulation = async () => {
         if (!simulation || !canEdit) return;
         const next = await dayAheadBidApi.saveManualSimulation(simulation.trade_source_id, simulation.target_date, simulationDraft);
+        const detail = await dayAheadBidApi.getTradeSourceDetail(simulation.trade_source_id);
+        simulationCacheRef.current[simulation.trade_source_id] = next;
+        strategyDetailCacheRef.current[simulation.trade_source_id] = detail;
         setSimulation(next);
         setSimulationDraft(next.bid_mwh_30m);
+        setCurrentDetail(detail);
         await refreshTradeSources();
         setFeedback({ severity: 'success', message: '人工方案次日申报已保存' });
     };
@@ -489,29 +557,17 @@ export const DayAheadSimulationPage: React.FC = () => {
                     </Box>
                 </Paper>
 
-                <Paper
-                    variant="outlined"
-                    sx={{
-                        p: 0,
-                        flex: { xs: 'none', lg: '1 1 76%' },
-                        minHeight: 0,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        borderRadius: 2,
-                        overflow: 'hidden',
-                        backgroundColor: 'background.paper',
-                    }}
-                >
-                    <Box sx={{ px: 1.5, py: 1.25, backgroundColor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>申报编辑区</Typography>
-                    </Box>
-                    <Box sx={{ px: 0, pb: 0, pt: 0, display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
-                        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', xl: 'row' }, gap: 1.5, minHeight: 0, flex: 1, overflow: 'hidden' }}>
-                        <Paper variant="outlined" sx={{ p: 1.5, flex: 1.2, display: 'flex', flexDirection: 'column', minHeight: 0, borderRadius: 2, overflow: 'hidden' }}>
-                            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>联合图表</Typography>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', xl: 'row' }, gap: 1.5, minHeight: 0, flex: 1 }}>
+                    <Paper variant="outlined" sx={{ p: 1.5, flex: 1.2, display: 'flex', flexDirection: 'column', minHeight: 0, borderRadius: 2, overflow: 'hidden', backgroundColor: 'background.paper' }}>
+                            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>未申报曲线</Typography>
                             {simulation.trade_type === 'auto' && <Alert severity="info" sx={{ mb: 1.25, flexShrink: 0 }}>自动策略申报只读展示，不支持前端编辑。</Alert>}
                             {simulation.trade_type === 'manual' && !canEdit && <Alert severity="warning" sx={{ mb: 1.25, flexShrink: 0 }}>当前账号缺少写权限，仅支持查看人工方案。</Alert>}
                             {simulation.trade_type === 'manual' && canEdit && !simulation.is_editable && <Alert severity="warning" sx={{ mb: 1.25, flexShrink: 0 }}>{simulation.lock_reason || '当前不可编辑'}</Alert>}
+                            {simulation.trade_type === 'manual' && canEdit && simulation.is_editable && (
+                                <Alert severity="info" sx={{ mb: 1.25, flexShrink: 0 }}>
+                                    可在上下图表中直接框选时段，随后在右侧使用批量编辑快速调整申报电量。
+                                </Alert>
+                            )}
                             <Box
                                 ref={simulationChartRef}
                                 sx={{
@@ -526,6 +582,26 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 <simulationFullscreen.FullscreenEnterButton />
                                 <simulationFullscreen.FullscreenExitButton />
                                 <simulationFullscreen.FullscreenTitle />
+                                {simulationHoveredRow && (
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            position: 'absolute',
+                                            top: 12,
+                                            right: 16,
+                                            zIndex: 3,
+                                            px: 1.5,
+                                            py: 1.25,
+                                            minWidth: 188,
+                                            pointerEvents: 'none',
+                                            boxShadow: '0 12px 28px rgba(15,23,42,0.12)',
+                                        }}
+                                    >
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>时段 {simulationHoveredRow.period}</Typography>
+                                        <Typography variant="body2">预测价格：{simulationHoveredRow.priceForecast.toFixed(1)} 元/MWh</Typography>
+                                        <Typography variant="body2">申报电量：{simulationHoveredRow.bidMwh.toFixed(1)} MWh</Typography>
+                                    </Paper>
+                                )}
                                 <Box sx={{ height: '58%' }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
@@ -535,6 +611,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             onMouseDown={handleSimulationMouseDown}
                                             onMouseMove={handleSimulationMouseMove}
                                             onMouseUp={handleSimulationMouseUp}
+                                            onMouseLeave={handleSimulationMouseLeave}
                                         >
                                             <CartesianGrid strokeDasharray="3 3" />
                                             <XAxis
@@ -546,8 +623,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                                                 tickLine={false}
                                             />
                                             <YAxis width={44} label={{ value: '元/MWh', angle: -90, position: 'insideLeft' }} />
-                                            <Tooltip content={<SimulationTooltip />} />
                                             <Line type="monotone" dataKey="priceForecast" stroke="#1d4ed8" dot={false} strokeWidth={2.2} />
+                                            {simulationHoveredPeriod != null && <ReferenceLine x={simulationHoveredPeriod} stroke="#64748b" strokeDasharray="4 4" />}
                                             {simulationRefAreaLeft != null && simulationRefAreaRight != null && (
                                                 <ReferenceArea
                                                     x1={Math.min(simulationRefAreaLeft, simulationRefAreaRight)}
@@ -571,11 +648,20 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 </Box>
                                 <Box sx={{ height: '42%' }}>
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={simulationRows} syncId="bid-simulation" margin={{ top: 6, right: 16, left: 0, bottom: 8 }}>
+                                        <ComposedChart
+                                            data={simulationRows}
+                                            syncId="bid-simulation"
+                                            margin={{ top: 6, right: 16, left: 0, bottom: 8 }}
+                                            onMouseDown={handleSimulationMouseDown}
+                                            onMouseMove={handleSimulationMouseMove}
+                                            onMouseUp={handleSimulationMouseUp}
+                                            onMouseLeave={handleSimulationMouseLeave}
+                                        >
                                             <CartesianGrid strokeDasharray="3 3" />
                                             <XAxis dataKey="period" interval={3} height={20} tick={{ fontSize: 12 }} />
                                             <YAxis width={44} label={{ value: 'MWh', angle: -90, position: 'insideLeft' }} />
                                             <ReferenceLine y={0} stroke="#94a3b8" />
+                                            {simulationHoveredPeriod != null && <ReferenceLine x={simulationHoveredPeriod} stroke="#64748b" strokeDasharray="4 4" />}
                                             {simulationRefAreaLeft != null && simulationRefAreaRight != null && (
                                                 <ReferenceArea
                                                     x1={Math.min(simulationRefAreaLeft, simulationRefAreaRight)}
@@ -599,22 +685,22 @@ export const DayAheadSimulationPage: React.FC = () => {
                                     </ResponsiveContainer>
                                 </Box>
                             </Box>
-                        </Paper>
+                    </Paper>
 
-                        <Paper
-                            variant="outlined"
-                            sx={{
-                                p: 0,
-                                width: { xs: '100%', xl: 420 },
-                                display: 'flex',
-                                flexDirection: 'column',
-                                minHeight: 0,
-                                borderRadius: 2,
-                                background: 'linear-gradient(180deg, rgba(255,247,237,0.65) 0%, rgba(255,255,255,1) 100%)',
-                                overflow: 'hidden',
-                            }}
-                        >
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0, flex: 1, px: 1.5, pt: 1.5 }}>
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: 0,
+                            width: { xs: '100%', xl: 420 },
+                            display: 'flex',
+                            flexDirection: 'column',
+                            minHeight: 0,
+                            borderRadius: 2,
+                            background: 'linear-gradient(180deg, rgba(255,247,237,0.65) 0%, rgba(255,255,255,1) 100%)',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0, flex: 1, px: 1.5, pt: 1.5 }}>
                                 <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, flexShrink: 0 }}>
                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', mb: 1 }}>
                                         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{simulationSelectionLabel}</Typography>
@@ -640,7 +726,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 <Table stickyHeader size="small">
                                     <TableHead>
                                         <TableRow>
-                                            <TableCell>时间</TableCell>
+                                            <TableCell>时段</TableCell>
                                             <TableCell align="right">当前值</TableCell>
                                             <TableCell align="right">原始值</TableCell>
                                         </TableRow>
@@ -648,7 +734,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                     <TableBody>
                                         {simulationRows.map((row, index) => (
                                             <TableRow key={row.period} hover>
-                                                <TableCell>{`${String(Math.floor(((index + 1) * 30) / 60) % 24).padStart(2, '0')}:${String(((index + 1) * 30) % 60).padStart(2, '0')}`}</TableCell>
+                                                <TableCell>{row.period}</TableCell>
                                                 <TableCell align="right">
                                                     {simulation.trade_type === 'manual' ? (
                                                         <TextField size="small" type="number" value={simulationDraft[index] ?? 0} disabled={!simulation.is_editable || !canEdit} onChange={(event) => {
@@ -684,11 +770,9 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             重置
                                         </Button>
                                 </Stack>
-                            </Box>
-                        </Paper>
                     </Box>
-                    </Box>
-                </Paper>
+                    </Paper>
+                </Box>
             </Box>
         );
     };

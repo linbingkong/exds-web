@@ -215,6 +215,112 @@ def _pick_price_curve(result_doc: Dict[str, Any]) -> List[float]:
     return [0.0] * PERIOD_COUNT
 
 
+def _get_trade_source_param_number(trade_source: Dict[str, Any], param_key: str, default: float = 0.0) -> float:
+    params = trade_source.get("params") or []
+    if isinstance(params, list):
+        for item in params:
+            if isinstance(item, dict) and item.get("param_key") == param_key:
+                try:
+                    return _round(float(item.get("param_value") or default), 1)
+                except (TypeError, ValueError):
+                    return _round(default, 1)
+    return _round(default, 1)
+
+
+def _load_latest_dayahead_forecast_curve(target_date: str) -> List[float]:
+    target_dt = _parse_date(target_date)
+    filters = {
+        "forecast_type": "d1_price",
+        "$or": [
+            {"target_date": target_dt},
+            {"target_date": target_date},
+        ],
+    }
+    latest_doc = next(
+        DATABASE.price_forecast_results.find(filters, {"forecast_id": 1, "created_at": 1}).sort(
+            [("created_at", -1), ("forecast_id", -1)]
+        ).limit(1),
+        None,
+    )
+    if not latest_doc:
+        return []
+
+    forecast_id = latest_doc.get("forecast_id")
+    forecast_filters = dict(filters)
+    if forecast_id:
+        forecast_filters["forecast_id"] = forecast_id
+
+    docs = list(
+        DATABASE.price_forecast_results.find(
+            forecast_filters,
+            {"_id": 0, "datetime": 1, "predicted_price": 1},
+        ).sort([("datetime", 1)])
+    )
+    values = [_round(float(doc.get("predicted_price") or 0), 2) for doc in docs]
+    if len(values) >= PERIOD_COUNT * 2:
+        return [
+            _round((values[index] + values[index + 1]) / 2, 2)
+            for index in range(0, PERIOD_COUNT * 2, 2)
+        ]
+    if len(values) >= PERIOD_COUNT:
+        return values[:PERIOD_COUNT]
+    return []
+
+
+def _resolve_dayahead_forecast_curve(target_date: str, result_doc: Optional[Dict[str, Any]] = None) -> List[float]:
+    forecast_curve = _load_latest_dayahead_forecast_curve(target_date)
+    if len(forecast_curve) == PERIOD_COUNT:
+        return forecast_curve
+    if result_doc:
+        fallback_curve = _coerce_curve(result_doc.get("price_forecast_30m"))
+        if len(fallback_curve) == PERIOD_COUNT:
+            return fallback_curve
+        return _pick_price_curve(result_doc)
+    return [0.0] * PERIOD_COUNT
+
+
+def _build_empty_manual_result_doc(trade_source: Dict[str, Any], target_date: str) -> Dict[str, Any]:
+    now = datetime.now()
+    zero_curve = [0.0] * PERIOD_COUNT
+    max_bid_mwh_per_period = _get_trade_source_param_number(trade_source, "max_bid_mwh_per_period", 0.0)
+    return {
+        "trade_id": _trade_id(trade_source["trade_source_id"], target_date),
+        "trade_type": trade_source["trade_type"],
+        "trade_source_id": trade_source["trade_source_id"],
+        "trade_source_name": trade_source.get("trade_source_name", ""),
+        "strategy_id": trade_source.get("strategy_id", ""),
+        "strategy_code": trade_source.get("strategy_code", ""),
+        "forecast_date": now,
+        "target_date": _parse_date(target_date),
+        "trade_date_str": target_date,
+        "status": "created",
+        "max_bid_mwh_per_period": max_bid_mwh_per_period,
+        "bid_ratio": zero_curve.copy(),
+        "bid_mwh": zero_curve.copy(),
+        "settlement_spread": zero_curve.copy(),
+        "period_pnl": zero_curve.copy(),
+        "period_result_flag": ["flat"] * PERIOD_COUNT,
+        "daily_bid_mwh": 0.0,
+        "daily_expected_pnl": 0.0,
+        "daily_realized_pnl": 0.0,
+        "daily_win_periods": 0,
+        "daily_loss_periods": 0,
+        "daily_avg_spread": 0.0,
+        "settled_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def _build_bid_ratio_curve(bid_mwh_30m: List[float], max_bid_mwh_per_period: float) -> List[float]:
+    if max_bid_mwh_per_period <= 0:
+        return [0.0] * PERIOD_COUNT
+    return [
+        _round(max(0.0, float(value or 0)) / max_bid_mwh_per_period, 4)
+        for value in bid_mwh_30m[:PERIOD_COUNT]
+    ]
+
+
 def _period_label(index: int) -> str:
     start_minutes = index * 30
     end_minutes = start_minutes + 30
@@ -510,7 +616,7 @@ def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any
     is_editable = trade_source.get("trade_type") == "manual"
     next_status = "已申报" if float(result_doc.get("daily_bid_mwh") or 0) > 0 else "未申报"
     target_date = str(result_doc.get("trade_date_str") or _serialize_timestamp(result_doc.get("target_date")) or "")
-    price_curve = _pick_price_curve(result_doc)
+    price_curve = _resolve_dayahead_forecast_curve(target_date, result_doc)
     bid_curve = _coerce_curve(result_doc.get("bid_mwh"))
     if len(bid_curve) < PERIOD_COUNT:
         bid_curve = bid_curve + [0.0] * (PERIOD_COUNT - len(bid_curve))
@@ -630,6 +736,8 @@ def _profit_daily_from_results(rows: List[Dict[str, Any]]) -> ProfitDailyRespons
 
 
 def _daily_review_from_result(trade_source: Dict[str, Any], result: Dict[str, Any]) -> DailyReviewDetailModel:
+    target_date = str(result.get("trade_date_str") or _serialize_timestamp(result.get("target_date")) or "")
+    forecast_curve = _resolve_dayahead_forecast_curve(target_date, result)
     rows: List[DailyReviewRowModel] = []
     for index in range(PERIOD_COUNT):
         period_pnl = float((result.get("period_pnl") or [0] * PERIOD_COUNT)[index] or 0)
@@ -643,7 +751,7 @@ def _daily_review_from_result(trade_source: Dict[str, Any], result: Dict[str, An
             DailyReviewRowModel(
                 period=index + 1,
                 time_label=_period_label(index),
-                price_forecast_yuan_per_mwh=_round(float((result.get("price_forecast_30m") or [0] * PERIOD_COUNT)[index] or 0), 2),
+                price_forecast_yuan_per_mwh=forecast_curve[index] if index < len(forecast_curve) else 0.0,
                 dayahead_price_yuan_per_mwh=_round(float((result.get("dayahead_price_30m") or [0] * PERIOD_COUNT)[index] or 0), 2),
                 econ_price_yuan_per_mwh=_round(float((result.get("econ_price_30m") or [0] * PERIOD_COUNT)[index] or 0), 2),
                 realtime_price_yuan_per_mwh=_round(float((result.get("rt_price_30m") or [0] * PERIOD_COUNT)[index] or 0), 2),
@@ -656,7 +764,7 @@ def _daily_review_from_result(trade_source: Dict[str, Any], result: Dict[str, An
     return DailyReviewDetailModel(
         trade_source_id=trade_source["trade_source_id"],
         trade_source_name=trade_source["trade_source_name"],
-        target_date=str(result.get("trade_date_str") or _serialize_timestamp(result.get("target_date")) or ""),
+        target_date=target_date,
         summary=DailyReviewSummaryModel(
             expected_pnl_yuan=_round(float(result.get("daily_expected_pnl") or 0), 2),
             realized_pnl_yuan=_round(float(result.get("daily_realized_pnl") or 0), 2),
@@ -699,7 +807,7 @@ def _create_trade_source(payload: TradeSourcePayload, expected_type: TradeType) 
 
 @router.get("/trade-sources", response_model=List[TradeSourceListItemModel], summary="获取交易来源列表")
 def get_trade_sources(_ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> List[TradeSourceListItemModel]:
-    docs = list(DATABASE.bid_trade_sources.find({}, {"_id": 0}).sort("created_at", 1))
+    docs = list(DATABASE.bid_trade_sources.find({}, {"_id": 0}).sort("trade_source_name", 1))
     return [
         TradeSourceListItemModel(**{key: value for key, value in _map_trade_source_doc(doc, _next_day_declare_status(doc["trade_source_id"])).items() if key in TradeSourceListItemModel.__fields__})
         for doc in docs
@@ -754,7 +862,13 @@ def delete_trade_source(trade_source_id: str, _ctx: CurrentUserContext = Depends
 @router.get("/simulations/next-day", response_model=SimulationDetailModel, summary="获取次日模拟申报")
 def get_next_day_simulation(trade_source_id: str = Query(...), _ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> SimulationDetailModel:
     trade_source = _get_trade_source_or_404(trade_source_id)
-    result_doc = _get_strategy_result_or_404(trade_source, _tomorrow_str(), "未找到次日申报记录")
+    target_date = _tomorrow_str()
+    result_doc = _ensure_strategy_result(trade_source, target_date)
+    if not result_doc:
+        if trade_source.get("trade_type") == "manual":
+            result_doc = _build_empty_manual_result_doc(trade_source, target_date)
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到次日申报记录")
     return _simulation_response(trade_source, result_doc)
 
 
@@ -763,22 +877,48 @@ def save_manual_simulation(payload: ManualSimulationPayload, _ctx: CurrentUserCo
     trade_source = _get_trade_source_or_404(payload.trade_source_id)
     if trade_source.get("trade_type") != "manual":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="仅人工方案支持保存")
-    result_doc = _get_strategy_result_or_404(trade_source, payload.target_date, "未找到待保存的申报记录")
+    result_doc = _ensure_strategy_result(trade_source, payload.target_date)
+    if not result_doc:
+        result_doc = _build_empty_manual_result_doc(trade_source, payload.target_date)
     now = datetime.now()
     summary = _summarize_bid_curve(payload.bid_mwh_30m)
-    price_forecast = _coerce_curve(result_doc.get("price_forecast_30m")) or [0.0] * PERIOD_COUNT
+    price_forecast = _resolve_dayahead_forecast_curve(payload.target_date, result_doc)
     daily_expected = _round(sum(payload.bid_mwh_30m[index] * (price_forecast[index] - SETTLEMENT_BASE_PRICE) for index in range(PERIOD_COUNT)), 2)
+    max_bid_mwh_per_period = _round(float(result_doc.get("max_bid_mwh_per_period") or _get_trade_source_param_number(trade_source, "max_bid_mwh_per_period", 0.0)), 1)
+    bid_curve = [_round(float(value or 0), 1) for value in payload.bid_mwh_30m]
+    bid_ratio = _build_bid_ratio_curve(bid_curve, max_bid_mwh_per_period)
     update_fields: Dict[str, Any] = {
-        "bid_mwh": [_round(value, 1) for value in payload.bid_mwh_30m],
+        "trade_id": _trade_id(payload.trade_source_id, payload.target_date),
+        "trade_type": trade_source.get("trade_type"),
+        "trade_source_id": trade_source.get("trade_source_id"),
+        "trade_source_name": trade_source.get("trade_source_name"),
+        "strategy_id": trade_source.get("strategy_id", ""),
+        "strategy_code": trade_source.get("strategy_code", ""),
+        "forecast_date": result_doc.get("forecast_date") or now,
+        "target_date": result_doc.get("target_date") or _parse_date(payload.target_date),
+        "trade_date_str": payload.target_date,
+        "status": result_doc.get("status") or "created",
+        "max_bid_mwh_per_period": max_bid_mwh_per_period,
+        "bid_ratio": bid_ratio,
+        "bid_mwh": bid_curve,
         "daily_bid_mwh": summary["total_bid_mwh"],
         "daily_expected_pnl": daily_expected,
         "updated_at": now,
     }
     if result_doc.get("original_bid_mwh") is None and isinstance(result_doc.get("bid_mwh"), list):
         update_fields["original_bid_mwh"] = [_round(float(value or 0), 1) for value in result_doc.get("bid_mwh", [])]
-    DATABASE.bid_strategy_results.update_one({"_id": result_doc["_id"]}, {"$set": update_fields})
+    filter_query = {"trade_id": _trade_id(payload.trade_source_id, payload.target_date)}
+    DATABASE.bid_strategy_results.update_one(
+        filter_query,
+        {
+            "$set": update_fields,
+            "$setOnInsert": {"created_at": result_doc.get("created_at") or now},
+        },
+        upsert=True,
+    )
     DATABASE.bid_trade_sources.update_one({"trade_source_id": payload.trade_source_id}, {"$set": {"updated_at": now}})
-    return _simulation_response(trade_source, DATABASE.bid_strategy_results.find_one({"_id": result_doc["_id"]}) or result_doc)
+    saved_doc = DATABASE.bid_strategy_results.find_one(filter_query) or {**result_doc, **update_fields}
+    return _simulation_response(trade_source, saved_doc)
 
 
 @router.post("/simulations/manual-reset", response_model=SimulationDetailModel, summary="重置人工申报")
@@ -792,7 +932,7 @@ def reset_manual_simulation(payload: ManualSimulationResetPayload, _ctx: Current
     reset_curve = [_round(float(value or 0), 1) for value in result_doc.get("original_bid_mwh", [])]
     now = datetime.now()
     summary = _summarize_bid_curve(reset_curve)
-    price_forecast = _coerce_curve(result_doc.get("price_forecast_30m")) or [0.0] * PERIOD_COUNT
+    price_forecast = _resolve_dayahead_forecast_curve(payload.target_date, result_doc)
     daily_expected = _round(sum(reset_curve[index] * (price_forecast[index] - SETTLEMENT_BASE_PRICE) for index in range(PERIOD_COUNT)), 2)
     DATABASE.bid_strategy_results.update_one({"_id": result_doc["_id"]}, {"$set": {"bid_mwh": reset_curve, "daily_bid_mwh": summary["total_bid_mwh"], "daily_expected_pnl": daily_expected, "updated_at": now}})
     DATABASE.bid_trade_sources.update_one({"trade_source_id": payload.trade_source_id}, {"$set": {"updated_at": now}})
