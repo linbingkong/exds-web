@@ -12,14 +12,22 @@ logger = logging.getLogger(__name__)
 async def event_driven_dashboard_snapshot_job() -> None:
     """定期检查结果数据签名，必要时重建首页快照。"""
     service = DashboardSnapshotService()
-    task_id = await TaskLogger.log_task_start(
-        service_type="web",
-        task_type="dashboard_snapshot",
-        task_name="交易总览首页快照刷新",
-        trigger_type="schedule",
-    )
     try:
         result = service.refresh_snapshot(force=False)
+        if result["status"] == "SKIPPED":
+            logger.info(
+                "交易总览首页快照无变化，跳过写入任务日志: snapshot_id=%s month=%s",
+                result["summary"].get("snapshot_id"),
+                result["summary"].get("month"),
+            )
+            return
+
+        task_id = await TaskLogger.log_task_start(
+            service_type="web",
+            task_type="dashboard_snapshot",
+            task_name="交易总览首页快照刷新",
+            trigger_type="schedule",
+        )
         await TaskLogger.log_task_end(
             task_id=task_id,
             status=result["status"],
@@ -33,6 +41,12 @@ async def event_driven_dashboard_snapshot_job() -> None:
         )
     except Exception as exc:
         logger.error("交易总览首页快照刷新失败: %s", exc, exc_info=True)
+        task_id = await TaskLogger.log_task_start(
+            service_type="web",
+            task_type="dashboard_snapshot",
+            task_name="交易总览首页快照刷新",
+            trigger_type="schedule",
+        )
         await TaskLogger.log_task_end(
             task_id=task_id,
             status="FAILED",
