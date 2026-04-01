@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, validator
 from webapp.api.dependencies.authz import CurrentUserContext, require_permission
+from webapp.models.trade_review import DayAheadReviewResponse
+from webapp.services.trade_review_service import TradeReviewService
 from webapp.tools.mongo import DATABASE
 
 logger = logging.getLogger(__name__)
@@ -18,10 +20,11 @@ EDIT_PERMISSION = "module:strategy_dayahead:edit"
 PERIOD_COUNT = 48
 SETTLEMENT_BASE_PRICE = 300
 
-TradeType = Literal["auto", "manual"]
+TradeType = Literal["auto", "manual", "real"]
 TradeSourceStatus = Literal["启用", "停用"]
 DeclareStatus = Literal["已申报", "未申报"]
 ProfitMetric = Literal["amount", "unit"]
+SourceKind = Literal["simulation", "real_trade"]
 
 
 class TradeSourceParamModel(BaseModel):
@@ -49,6 +52,8 @@ class TradeSourceListItemModel(BaseModel):
     strategy_code: str = ""
     trade_source_status: TradeSourceStatus
     next_day_declare_status: DeclareStatus
+    source_kind: SourceKind = "simulation"
+    readonly: bool = False
 
 
 class TradeSourceDetailModel(TradeSourceListItemModel):
@@ -213,6 +218,29 @@ def _serialize_timestamp(value: Any) -> str:
     return ""
 
 
+def _get_trade_review_service() -> TradeReviewService:
+    return TradeReviewService(DATABASE)
+
+
+def _is_real_trade_source_id(trade_source_id: str) -> bool:
+    return trade_source_id == "real_da" or trade_source_id.startswith("real_da_")
+
+
+def _real_trade_target_date_from_id(trade_source_id: str) -> str:
+    if not _is_real_trade_source_id(trade_source_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交易来源不存在")
+    if trade_source_id == "real_da":
+        latest_target_date = _get_latest_real_trade_target_date()
+        if latest_target_date:
+            return latest_target_date
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到真实日前交易数据")
+    raw = trade_source_id.removeprefix("real_da_")
+    try:
+        return datetime.strptime(raw, "%Y%m%d").strftime("%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="真实交易来源标识无效") from exc
+
+
 def _coerce_curve(values: Any) -> List[float]:
     if not isinstance(values, list):
         return []
@@ -227,6 +255,41 @@ def _pick_price_curve(result_doc: Dict[str, Any]) -> List[float]:
     return [0.0] * PERIOD_COUNT
 
 
+def _list_real_trade_target_dates(limit: int = 15) -> List[str]:
+    values = [
+        str(item)
+        for item in DATABASE.trade_declare.distinct("delivery_groups.delivery_date")
+        if isinstance(item, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", item)
+    ]
+    values.sort(reverse=True)
+    return values[:limit]
+
+
+def _get_latest_real_trade_target_date() -> Optional[str]:
+    values = _list_real_trade_target_dates(limit=1)
+    return values[0] if values else None
+
+
+def _build_real_trade_source(target_date: Optional[str] = None) -> Dict[str, Any]:
+    resolved_target_date = target_date or _get_latest_real_trade_target_date() or datetime.now().strftime("%Y-%m-%d")
+    target_dt = _parse_date(resolved_target_date)
+    return {
+        "trade_source_id": "real_da",
+        "trade_source_name": "真实日前交易",
+        "trade_type": "real",
+        "strategy_id": "",
+        "strategy_code": "REAL-DA",
+        "status": "active",
+        "description": "来自日前交易复盘的真实交易结果，只支持分析与复盘查看。",
+        "params": [],
+        "created_at": target_dt,
+        "updated_at": target_dt,
+        "source_kind": "real_trade",
+        "readonly": True,
+        "target_date": resolved_target_date,
+    }
+
+
 def _get_trade_source_param_number(trade_source: Dict[str, Any], param_key: str, default: float = 0.0) -> float:
     params = trade_source.get("params") or []
     if isinstance(params, list):
@@ -237,6 +300,105 @@ def _get_trade_source_param_number(trade_source: Dict[str, Any], param_key: str,
                 except (TypeError, ValueError):
                     return _round(default, 1)
     return _round(default, 1)
+
+
+def _settlement_price_field(review: DayAheadReviewResponse) -> str:
+    return "price_da_econ" if review.settlement_price_type == "econ" else "price_da"
+
+
+def _adapt_trade_review_to_result(trade_source: Dict[str, Any], review: DayAheadReviewResponse) -> Dict[str, Any]:
+    settlement_field = _settlement_price_field(review)
+    bid_curve: List[float] = []
+    forecast_curve: List[float] = []
+    dayahead_curve: List[float] = []
+    econ_curve: List[float] = []
+    rt_curve: List[float] = []
+    spread_curve: List[float] = []
+    period_pnl_curve: List[float] = []
+    win_periods = 0
+    loss_periods = 0
+    active_spreads: List[float] = []
+
+    for index in range(PERIOD_COUNT):
+        row = review.chart_rows[index] if index < len(review.chart_rows) else None
+        bid = _round(float((row.declared_mwh if row else 0) or 0), 1)
+        forecast = _round(float((row.price_da_forecast if row and row.price_da_forecast is not None else 0) or 0), 2)
+        dayahead = _round(float((row.price_da if row and row.price_da is not None else 0) or 0), 2)
+        econ = _round(float((row.price_da_econ if row and row.price_da_econ is not None else 0) or 0), 2)
+        realtime = _round(float((row.price_rt if row and row.price_rt is not None else 0) or 0), 2)
+        settlement_price = getattr(row, settlement_field, None) if row else None
+        spread = _round(float(realtime - settlement_price), 2) if row and settlement_price is not None and row.price_rt is not None else 0.0
+        period_pnl = _round(spread * bid, 2) if bid > 0 else 0.0
+        if bid > 0:
+            active_spreads.append(spread)
+            if period_pnl > 0:
+                win_periods += 1
+            elif period_pnl < 0:
+                loss_periods += 1
+        bid_curve.append(bid)
+        forecast_curve.append(forecast)
+        dayahead_curve.append(dayahead)
+        econ_curve.append(econ)
+        rt_curve.append(realtime)
+        spread_curve.append(spread)
+        period_pnl_curve.append(period_pnl)
+
+    daily_bid = _round(sum(bid_curve), 1)
+    expected_pnl = _round(
+        sum((forecast_curve[index] - (econ_curve[index] if settlement_field == "price_da_econ" else dayahead_curve[index])) * bid_curve[index] for index in range(PERIOD_COUNT)),
+        2,
+    )
+    realized_pnl = _round(
+        review.execution_analysis_summary.total_profit_amount
+        if review.execution_analysis_summary is not None
+        else sum(period_pnl_curve),
+        2,
+    )
+    profitable_amount = _round(
+        review.execution_analysis_summary.profit_amount
+        if review.execution_analysis_summary is not None
+        else sum(value for value in period_pnl_curve if value > 0),
+        2,
+    )
+    loss_amount = _round(
+        -abs(review.execution_analysis_summary.loss_amount)
+        if review.execution_analysis_summary is not None
+        else sum(value for value in period_pnl_curve if value < 0),
+        2,
+    )
+
+    return {
+        "trade_id": _trade_id(trade_source["trade_source_id"], review.target_date),
+        "trade_type": trade_source["trade_type"],
+        "trade_source_id": trade_source["trade_source_id"],
+        "trade_source_name": trade_source["trade_source_name"],
+        "strategy_id": trade_source.get("strategy_id", ""),
+        "strategy_code": trade_source.get("strategy_code", ""),
+        "forecast_date": _parse_date(review.target_date),
+        "target_date": _parse_date(review.target_date),
+        "trade_date_str": review.target_date,
+        "status": "settled",
+        "max_bid_mwh_per_period": max(bid_curve) if bid_curve else 0.0,
+        "bid_ratio": [0.0] * PERIOD_COUNT,
+        "bid_mwh": bid_curve,
+        "original_bid_mwh": bid_curve,
+        "daily_bid_mwh": daily_bid,
+        "daily_expected_pnl": expected_pnl,
+        "daily_realized_pnl": realized_pnl,
+        "daily_profitable_amount": profitable_amount,
+        "daily_loss_amount": loss_amount,
+        "daily_win_periods": win_periods,
+        "daily_loss_periods": loss_periods,
+        "daily_avg_spread": _round(sum(active_spreads) / len(active_spreads), 2) if active_spreads else 0.0,
+        "price_forecast_30m": forecast_curve,
+        "dayahead_price_30m": dayahead_curve,
+        "econ_price_30m": econ_curve,
+        "rt_price_30m": rt_curve,
+        "settlement_spread": spread_curve,
+        "period_pnl": period_pnl_curve,
+        "created_at": _parse_date(review.target_date),
+        "updated_at": datetime.now(),
+    }
 
 
 def _load_latest_dayahead_forecast_curve(target_date: str) -> List[float]:
@@ -289,6 +451,33 @@ def _resolve_dayahead_forecast_curve(target_date: str, result_doc: Optional[Dict
             return fallback_curve
         return _pick_price_curve(result_doc)
     return [0.0] * PERIOD_COUNT
+
+
+def _real_trade_review_or_404(target_date: str, detail: str = "未找到对应日期的真实交易复盘记录") -> DayAheadReviewResponse:
+    try:
+        return _get_trade_review_service().get_day_ahead_review(target_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail) from exc
+
+
+def _real_trade_results_for_range(trade_source: Dict[str, Any], start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    start_dt = _parse_date(start_date)
+    end_dt = _parse_date(end_date)
+    if end_dt < start_dt:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="结束日期不能早于开始日期")
+    rows: List[Dict[str, Any]] = []
+    cursor = start_dt
+    service = _get_trade_review_service()
+    while cursor <= end_dt:
+        current = cursor.strftime("%Y-%m-%d")
+        try:
+            review = service.get_day_ahead_review(current)
+        except ValueError:
+            cursor += timedelta(days=1)
+            continue
+        rows.append(_adapt_trade_review_to_result(trade_source, review))
+        cursor += timedelta(days=1)
+    return rows
 
 
 def _build_empty_manual_result_doc(trade_source: Dict[str, Any], target_date: str) -> Dict[str, Any]:
@@ -490,6 +679,8 @@ def _map_trade_source_doc(doc: Dict[str, Any], next_status: DeclareStatus) -> Di
         "strategy_code": str(doc.get("strategy_code") or ""),
         "trade_source_status": _map_trade_source_status(doc.get("status") or doc.get("trade_source_status")),
         "next_day_declare_status": next_status,
+        "source_kind": doc.get("source_kind", "simulation"),
+        "readonly": bool(doc.get("readonly", False)),
         "description": str(doc.get("description") or ""),
         "params": _normalize_params(doc.get("params")),
         "created_at": _serialize_timestamp(doc.get("created_at")),
@@ -612,6 +803,8 @@ def _next_day_declare_status(trade_source_id: str) -> DeclareStatus:
 
 
 def _get_trade_source_or_404(trade_source_id: str) -> Dict[str, Any]:
+    if _is_real_trade_source_id(trade_source_id):
+        return _build_real_trade_source(_real_trade_target_date_from_id(trade_source_id))
     doc = DATABASE.bid_trade_sources.find_one({"trade_source_id": trade_source_id})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交易来源不存在")
@@ -619,6 +812,8 @@ def _get_trade_source_or_404(trade_source_id: str) -> Dict[str, Any]:
 
 
 def _get_strategy_result_or_404(trade_source: Dict[str, Any], target_date: str, detail: str) -> Dict[str, Any]:
+    if trade_source.get("source_kind") == "real_trade":
+        return _adapt_trade_review_to_result(trade_source, _real_trade_review_or_404(target_date, detail))
     result = _ensure_strategy_result(trade_source, target_date)
     if result:
         return result
@@ -626,7 +821,7 @@ def _get_strategy_result_or_404(trade_source: Dict[str, Any], target_date: str, 
 
 
 def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any]) -> SimulationDetailModel:
-    is_editable = trade_source.get("trade_type") == "manual"
+    is_editable = trade_source.get("trade_type") == "manual" and trade_source.get("source_kind") != "real_trade"
     next_status = "已申报" if float(result_doc.get("daily_bid_mwh") or 0) > 0 else "未申报"
     target_date = str(result_doc.get("trade_date_str") or _serialize_timestamp(result_doc.get("target_date")) or "")
     price_curve = _resolve_dayahead_forecast_curve(target_date, result_doc)
@@ -646,7 +841,11 @@ def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any
         price_forecast_30m=price_curve if len(price_curve) == PERIOD_COUNT else price_curve + [0.0] * (PERIOD_COUNT - len(price_curve)),
         bid_mwh_30m=bid_curve,
         is_editable=is_editable,
-        lock_reason=None if is_editable else "自动策略申报只读展示，不支持前端编辑。",
+        lock_reason=(
+            None
+            if is_editable
+            else ("真实交易来源仅支持分析与复盘查看，不支持申报编辑。" if trade_source.get("source_kind") == "real_trade" else "自动策略申报只读展示，不支持前端编辑。")
+        ),
     )
 
 
@@ -853,10 +1052,14 @@ def _create_trade_source(payload: TradeSourcePayload, expected_type: TradeType) 
 @router.get("/trade-sources", response_model=List[TradeSourceListItemModel], summary="获取交易来源列表")
 def get_trade_sources(_ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> List[TradeSourceListItemModel]:
     docs = list(DATABASE.bid_trade_sources.find({}, {"_id": 0}).sort("trade_source_name", 1))
-    return [
+    simulation_items = [
         TradeSourceListItemModel(**{key: value for key, value in _map_trade_source_doc(doc, _next_day_declare_status(doc["trade_source_id"])).items() if key in TradeSourceListItemModel.__fields__})
         for doc in docs
     ]
+    real_items: List[TradeSourceListItemModel] = []
+    if _get_latest_real_trade_target_date():
+        real_items.append(TradeSourceListItemModel(**_map_trade_source_doc(_build_real_trade_source(), "已申报")))
+    return [*real_items, *simulation_items]
 
 
 @router.get("/trade-sources/{trade_source_id}", response_model=TradeSourceDetailModel, summary="获取交易来源详情")
@@ -907,6 +1110,9 @@ def delete_trade_source(trade_source_id: str, _ctx: CurrentUserContext = Depends
 @router.get("/simulations/next-day", response_model=SimulationDetailModel, summary="获取次日模拟申报")
 def get_next_day_simulation(trade_source_id: str = Query(...), _ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> SimulationDetailModel:
     trade_source = _get_trade_source_or_404(trade_source_id)
+    if trade_source.get("source_kind") == "real_trade":
+        target_date = trade_source.get("target_date") or _real_trade_target_date_from_id(trade_source_id)
+        return _simulation_response(trade_source, _adapt_trade_review_to_result(trade_source, _real_trade_review_or_404(target_date)))
     target_date = _tomorrow_str()
     result_doc = _ensure_strategy_result(trade_source, target_date)
     if not result_doc:
@@ -987,19 +1193,22 @@ def reset_manual_simulation(payload: ManualSimulationResetPayload, _ctx: Current
 @router.get("/analysis/summary", response_model=ProfitSummaryModel, summary="获取收益摘要")
 def get_profit_summary(trade_source_id: str = Query(...), start_date: str = Query(...), end_date: str = Query(...), _ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> ProfitSummaryModel:
     trade_source = _get_trade_source_or_404(trade_source_id)
-    return _profit_summary_from_results(trade_source_id, start_date, end_date, _ensure_strategy_results_for_range(trade_source, start_date, end_date))
+    rows = _real_trade_results_for_range(trade_source, start_date, end_date) if trade_source.get("source_kind") == "real_trade" else _ensure_strategy_results_for_range(trade_source, start_date, end_date)
+    return _profit_summary_from_results(trade_source_id, start_date, end_date, rows)
 
 
 @router.get("/analysis/profit-curve", response_model=ProfitCurveResponseModel, summary="获取收益曲线")
 def get_profit_curve(trade_source_id: str = Query(...), start_date: str = Query(...), end_date: str = Query(...), metric: ProfitMetric = Query("amount"), _ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> ProfitCurveResponseModel:
     trade_source = _get_trade_source_or_404(trade_source_id)
-    return _profit_curve_from_results(trade_source_id, metric, _ensure_strategy_results_for_range(trade_source, start_date, end_date))
+    rows = _real_trade_results_for_range(trade_source, start_date, end_date) if trade_source.get("source_kind") == "real_trade" else _ensure_strategy_results_for_range(trade_source, start_date, end_date)
+    return _profit_curve_from_results(trade_source_id, metric, rows)
 
 
 @router.get("/analysis/daily", response_model=ProfitDailyResponseModel, summary="获取日度收益表")
 def get_profit_daily(trade_source_id: str = Query(...), start_date: str = Query(...), end_date: str = Query(...), _ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> ProfitDailyResponseModel:
     trade_source = _get_trade_source_or_404(trade_source_id)
-    return _profit_daily_from_results(_ensure_strategy_results_for_range(trade_source, start_date, end_date))
+    rows = _real_trade_results_for_range(trade_source, start_date, end_date) if trade_source.get("source_kind") == "real_trade" else _ensure_strategy_results_for_range(trade_source, start_date, end_date)
+    return _profit_daily_from_results(rows)
 
 
 @router.get("/analysis/daily-review/{target_date}", response_model=DailyReviewDetailModel, summary="获取单日复盘")

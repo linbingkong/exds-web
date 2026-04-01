@@ -60,6 +60,7 @@ import {
     SimulationDetail,
     TradeSourceDetail,
     TradeSourceListItem,
+    TradeSourcePayload,
     TradeSourceParam,
     dayAheadBidApi,
 } from '../api/dayAheadBid';
@@ -502,9 +503,9 @@ export const DayAheadSimulationPage: React.FC = () => {
     };
 
     const handleDialogSubmit = async () => {
-        const payload = {
+        const payload: TradeSourcePayload = {
             trade_source_name: editingDetail?.trade_source_name || '',
-            trade_type: editingDetail?.trade_type || 'manual',
+            trade_type: editingDetail?.trade_type === 'auto' ? 'auto' : 'manual',
             strategy_code: editingDetail?.strategy_code || '',
             trade_source_status: editingDetail?.trade_source_status || '启用',
             description: editingDetail?.description || '',
@@ -707,6 +708,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                 strategy_code: '',
                 trade_source_status: '启用',
                 next_day_declare_status: '未申报',
+                source_kind: 'simulation',
+                readonly: false,
                 description: '',
                 params: [EMPTY_PARAM],
                 created_at: '',
@@ -819,6 +822,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                 <Box sx={{ display: 'flex', flexDirection: { xs: 'column', xl: 'row' }, gap: 1.5, minHeight: 0, flex: 1 }}>
                     <Paper variant="outlined" sx={{ p: { xs: 1.25, sm: 1.5 }, flex: 1.2, display: 'flex', flexDirection: 'column', minHeight: 0, borderRadius: 2, overflow: 'hidden', backgroundColor: 'background.paper' }}>
                             <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>申报曲线</Typography>
+                            {simulation.trade_type === 'real' && <Alert severity="info" sx={{ mb: 1.25, flexShrink: 0 }}>真实日前交易来源只读展示，用于和模拟策略做收益分析与复盘对比。</Alert>}
                             {simulation.trade_type === 'auto' && <Alert severity="info" sx={{ mb: 1.25, flexShrink: 0 }}>自动策略申报只读展示，不支持前端编辑。</Alert>}
                             {simulation.trade_type === 'manual' && !canEdit && <Alert severity="warning" sx={{ mb: 1.25, flexShrink: 0 }}>当前账号缺少写权限，仅支持查看人工方案。</Alert>}
                             {simulation.trade_type === 'manual' && canEdit && !simulation.is_editable && <Alert severity="warning" sx={{ mb: 1.25, flexShrink: 0 }}>{simulation.lock_reason || '当前不可编辑'}</Alert>}
@@ -945,7 +949,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                                     fillOpacity={0.18}
                                                 />
                                             )}
-                                            <Bar dataKey="bidMwh" fill={simulation.trade_type === 'auto' ? '#0f766e' : '#2563eb'} radius={[4, 4, 0, 0]} />
+                                            <Bar dataKey="bidMwh" fill={simulation.trade_type === 'manual' ? '#2563eb' : '#0f766e'} radius={[4, 4, 0, 0]} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
@@ -1326,25 +1330,49 @@ export const DayAheadSimulationPage: React.FC = () => {
                     }}
                 >
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} useFlexGap flexWrap="wrap" alignItems={{ md: 'center' }}>
-                        <Stack
-                            direction="row"
-                            spacing={1}
-                            alignItems="center"
+                        <Box
                             sx={{
                                 width: { xs: '100%', sm: 'auto' },
                                 minWidth: 0,
+                                display: 'grid',
+                                gridTemplateColumns: { xs: '32px minmax(0, 1fr) 32px', sm: '36px minmax(0, 180px) 36px' },
+                                alignItems: 'center',
+                                columnGap: 0.5,
                             }}
                         >
-                            <IconButton size="small" onClick={() => shiftReviewDate(-1)} sx={{ border: 1, borderColor: 'divider' }}>
+                            <IconButton
+                                size="small"
+                                onClick={() => shiftReviewDate(-1)}
+                                sx={{ border: 1, borderColor: 'divider', width: { xs: 32, sm: 36 }, height: { xs: 32, sm: 36 } }}
+                            >
                                 <ArrowLeftIcon fontSize="small" />
                             </IconButton>
                             <Box sx={{ flex: 1, minWidth: 0 }}>
-                                <DatePicker label="日期选择" value={reviewTargetDate} onChange={setReviewTargetDate} slotProps={{ textField: { size: 'small', fullWidth: true, sx: { width: { xs: '100%', sm: 180 } } } }} />
+                                <DatePicker
+                                    label={isMobile ? '日期' : '日期选择'}
+                                    value={reviewTargetDate}
+                                    onChange={setReviewTargetDate}
+                                    slotProps={{
+                                        textField: {
+                                            size: 'small',
+                                            fullWidth: true,
+                                            sx: {
+                                                width: '100%',
+                                                minWidth: 0,
+                                                '& .MuiInputBase-root': { minWidth: 0 },
+                                            },
+                                        },
+                                    }}
+                                />
                             </Box>
-                            <IconButton size="small" onClick={() => shiftReviewDate(1)} sx={{ border: 1, borderColor: 'divider' }}>
+                            <IconButton
+                                size="small"
+                                onClick={() => shiftReviewDate(1)}
+                                sx={{ border: 1, borderColor: 'divider', width: { xs: 32, sm: 36 }, height: { xs: 32, sm: 36 } }}
+                            >
                                 <ArrowRightIcon fontSize="small" />
                             </IconButton>
-                        </Stack>
+                        </Box>
                     </Stack>
                 </Paper>
                 <Paper
@@ -1602,6 +1630,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 <ListItemButton key={item.trade_source_id} selected={selectedTradeSourceId === item.trade_source_id} onClick={() => setSelectedTradeSourceId(item.trade_source_id)} sx={{ alignItems: 'flex-start', borderBottom: 1, borderColor: 'divider', py: { xs: 1, sm: 1.25 } }}>
                                     <ListItemText
                                         primary={<Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%' }}>
+                                            {item.source_kind === 'real_trade' && <Chip size="small" label="真实" color="info" variant="outlined" />}
                                             <Typography variant="body2" sx={{ fontWeight: 700, color: item.trade_source_status === '停用' ? 'text.disabled' : 'text.primary', flex: 1 }}>
                                                 {item.trade_source_name}
                                             </Typography>
@@ -1610,7 +1639,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         secondaryTypographyProps={{ noWrap: true }}
                                         secondary={item.strategy_code || item.trade_source_id}
                                     />
-                                    {managementOpen && canEdit && <Stack direction="row" spacing={0.5} sx={{ ml: 1 }}>
+                                    {managementOpen && canEdit && !item.readonly && <Stack direction="row" spacing={0.5} sx={{ ml: 1 }}>
                                         <IconButton size="small" onClick={(event) => { event.stopPropagation(); void openEditDialog(item.trade_source_id); }}><EditOutlinedIcon fontSize="small" /></IconButton>
                                         <IconButton size="small" onClick={(event) => { event.stopPropagation(); void handleStatusToggle(item); }}>{item.trade_source_status === '启用' ? <VisibilityOutlinedIcon fontSize="small" /> : <ArrowRightIcon fontSize="small" />}</IconButton>
                                         <IconButton size="small" color="error" onClick={(event) => { event.stopPropagation(); void handleDelete(item.trade_source_id); }}><DeleteOutlineIcon fontSize="small" /></IconButton>
@@ -1639,22 +1668,34 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 onChange={(_event, value) => setActivePanel(value)}
                                 variant="scrollable"
                                 scrollButtons="auto"
+                                allowScrollButtonsMobile
                                 sx={{
                                     minHeight: 40,
+                                    '& .MuiTabs-scroller': {
+                                        overflowX: 'auto !important',
+                                    },
                                     '& .MuiTabs-flexContainer': {
-                                        gap: { xs: 0.25, sm: 0.5 },
+                                        gap: { xs: 0.5, sm: 0.5 },
                                     },
                                     '& .MuiTab-root': {
                                         minHeight: 40,
                                         py: 0.5,
-                                        px: { xs: 1, sm: 1.25 },
-                                        minWidth: { xs: 92, sm: 'auto' },
+                                        px: { xs: 0.75, sm: 1.25 },
+                                        minWidth: { xs: 82, sm: 'auto' },
+                                        flexShrink: 0,
+                                        whiteSpace: 'nowrap',
+                                    },
+                                    '& .MuiTabs-scrollButtons': {
+                                        width: { xs: 28, sm: 32 },
+                                    },
+                                    '& .MuiTabs-scrollButtons.Mui-disabled': {
+                                        opacity: 0.28,
                                     },
                                 }}
                             >
-                                <Tab icon={<TimelineOutlinedIcon />} iconPosition="start" label="模拟申报" />
-                                <Tab icon={<AnalyticsOutlinedIcon />} iconPosition="start" label="策略收益" />
-                                <Tab icon={<StyleOutlinedIcon />} iconPosition="start" label="单日复盘" />
+                                <Tab icon={<TimelineOutlinedIcon />} iconPosition="start" label={isMobile ? '申报' : '模拟申报'} />
+                                <Tab icon={<AnalyticsOutlinedIcon />} iconPosition="start" label={isMobile ? '收益' : '策略收益'} />
+                                <Tab icon={<StyleOutlinedIcon />} iconPosition="start" label={isMobile ? '复盘' : '单日复盘'} />
                                 {!isMobile && <Tab label="策略对比" />}
                             </Tabs>
                         </Paper>

@@ -1,10 +1,11 @@
 import apiClient from './client';
 import { addDays, endOfMonth, endOfYear, format, startOfDay, startOfMonth, startOfYear, subDays } from 'date-fns';
 
-export type TradeType = 'auto' | 'manual';
+export type TradeType = 'auto' | 'manual' | 'real';
 export type TradeSourceStatus = '启用' | '停用';
 export type DeclareStatus = '已申报' | '未申报';
 export type ProfitMetric = 'amount' | 'unit';
+export type SourceKind = 'simulation' | 'real_trade';
 
 export interface TradeSourceListItem {
     trade_source_id: string;
@@ -14,6 +15,8 @@ export interface TradeSourceListItem {
     strategy_code: string;
     trade_source_status: TradeSourceStatus;
     next_day_declare_status: DeclareStatus;
+    source_kind: SourceKind;
+    readonly: boolean;
 }
 
 export interface TradeSourceParam {
@@ -149,9 +152,9 @@ interface MockState {
     manualBidCurves: Record<string, number[]>;
 }
 
-interface TradeSourcePayload {
+export interface TradeSourcePayload {
     trade_source_name: string;
-    trade_type: TradeType;
+    trade_type: Exclude<TradeType, 'real'>;
     strategy_code: string;
     trade_source_status: TradeSourceStatus;
     description: string;
@@ -224,6 +227,8 @@ function buildDefaultTradeSources(now: string): TradeSourceDetail[] {
             strategy_code: 'AUTO-PROB',
             trade_source_status: '启用',
             next_day_declare_status: '已申报',
+            source_kind: 'simulation',
+            readonly: false,
             description: '按时段概率与边际收益自动生成次日申报曲线。',
             params: [
                 { param_key: 'risk_factor', param_name: '风险系数', param_value: '0.75', unit: '-', description: '控制报价风险偏好' },
@@ -240,6 +245,8 @@ function buildDefaultTradeSources(now: string): TradeSourceDetail[] {
             strategy_code: 'AUTO-SMOOTH',
             trade_source_status: '启用',
             next_day_declare_status: '已申报',
+            source_kind: 'simulation',
+            readonly: false,
             description: '基于相邻时段平滑约束生成申报。',
             params: [
                 { param_key: 'smooth_lambda', param_name: '平滑系数', param_value: '0.60', unit: '-', description: '相邻时段平滑强度' },
@@ -256,6 +263,8 @@ function buildDefaultTradeSources(now: string): TradeSourceDetail[] {
             strategy_code: 'MANUAL-PEAK',
             trade_source_status: '启用',
             next_day_declare_status: '未申报',
+            source_kind: 'simulation',
+            readonly: false,
             description: '人工维护的高峰强化方案。',
             params: [
                 { param_key: 'peak_limit', param_name: '峰段上限', param_value: '160', unit: 'MWh', description: '峰段手工申报上限' },
@@ -272,6 +281,8 @@ function buildDefaultTradeSources(now: string): TradeSourceDetail[] {
             strategy_code: 'MANUAL-BALANCE',
             trade_source_status: '停用',
             next_day_declare_status: '未申报',
+            source_kind: 'simulation',
+            readonly: false,
             description: '人工维护的平滑均衡方案。',
             params: [
                 { param_key: 'balance_ratio', param_name: '平衡系数', param_value: '0.95', unit: '-', description: '控制日内波动幅度' },
@@ -574,6 +585,8 @@ export const dayAheadBidApi = {
                     trade_source_id: id,
                     strategy_id: `${payload.trade_type}_${Date.now()}`,
                     next_day_declare_status: '未申报',
+                    source_kind: 'simulation',
+                    readonly: false,
                     created_at: now,
                     updated_at: now,
                     ...payload,
