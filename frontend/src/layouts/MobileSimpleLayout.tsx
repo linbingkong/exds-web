@@ -84,7 +84,6 @@ export const MobileSimpleLayout: React.FC = () => {
 
     const isRoot = location.pathname === '/' || location.pathname === '';
     const showBackButton = activeTab || !isRoot;
-    const isFullBleedMobilePage = location.pathname === '/' || location.pathname === '/dashboard';
 
     const handleAccountMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
         setAnchorEl(event.currentTarget);
@@ -273,7 +272,7 @@ export const MobileSimpleLayout: React.FC = () => {
                 component="main"
                 sx={{
                     flexGrow: 1,
-                    p: activeTab || isFullBleedMobilePage ? 0 : 3,  // 首页等全宽页面由自身控制间距
+                    p: activeTab ? 0 : 3,  // Tab页面时无padding，让组件自己控制
                     width: { sm: `calc(100% - ${drawerWidth}px)` },
                 }}
             >
