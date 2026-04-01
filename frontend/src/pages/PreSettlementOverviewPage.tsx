@@ -85,6 +85,21 @@ const DEFAULT_RECALCULATE_OPTIONS: SettlementRecalculateOptions = {
     retailDaily: true,
 };
 
+const resolveMuiColor = (theme: Theme, color: string): string => {
+    if (!color.includes('.')) {
+        return color;
+    }
+
+    const resolved = color.split('.').reduce<any>((current, key) => {
+        if (current && typeof current === 'object' && key in current) {
+            return current[key];
+        }
+        return undefined;
+    }, theme.palette);
+
+    return typeof resolved === 'string' ? resolved : color;
+};
+
 // 图表视图模式
 type ChartViewMode = 'price' | 'amount';
 
@@ -105,25 +120,37 @@ const StatCard: React.FC<{
 }> = ({ title, value, subtitle, icon, color = 'primary.main', valueColor }) => (
     <Paper
         variant="outlined"
-        sx={{
+        sx={(theme) => {
+            const resolvedCardColor = resolveMuiColor(theme, color);
+            const resolvedValueColor = valueColor ? resolveMuiColor(theme, valueColor) : undefined;
+
+            return {
             p: { xs: 1.5, sm: 2 },
             display: 'flex',
             alignItems: 'center',
             height: '100%',
             borderRadius: 2,
             border: '1px solid',
-            borderColor: alpha(color, 0.2),
-            background: `linear-gradient(135deg, ${alpha(color, 0.03)} 0%, ${alpha(color, 0.07)} 100%)`,
+            borderColor: alpha(resolvedCardColor, 0.2),
+            background: `linear-gradient(135deg, ${alpha(resolvedCardColor, 0.03)} 0%, ${alpha(resolvedCardColor, 0.07)} 100%)`,
+            '& .stat-card-icon': {
+                color: resolvedCardColor,
+            },
+            '& .stat-card-value': {
+                color: resolvedValueColor || theme.palette.text.primary,
+            },
+            };
         }}
     >
-        <Box sx={{ fontSize: { xs: 30, sm: 40 }, color, mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center' }}>
+        <Box className="stat-card-icon" sx={{ fontSize: { xs: 30, sm: 40 }, mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center' }}>
             {icon}
         </Box>
         <Box sx={{ minWidth: 0 }}>
             <Typography variant="body2" color="text.secondary" noWrap>{title}</Typography>
             <Typography
+                className="stat-card-value"
                 variant="h6" component="div" fontWeight="bold" noWrap
-                sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, color: valueColor || 'text.primary' }}
+                sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}
             >
                 {value}
             </Typography>
