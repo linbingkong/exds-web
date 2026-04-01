@@ -120,7 +120,7 @@ const DashboardPanel: React.FC<{
     <Paper
         variant="outlined"
         sx={{
-            p: { xs: 1.25, md: 1.5 },
+            p: { xs: 1, md: 1.5 },
             borderRadius: 2,
             width: '100%',
             maxWidth: '100%',
@@ -997,9 +997,9 @@ export const DashboardPage: React.FC = () => {
         display: 'flex',
         flexDirection: 'column',
         gap: { xs: 1.5, sm: 2 },
-        px: { xs: 1.5, sm: 2 },
-        pt: { xs: 1.5, sm: 2 },
-        pb: { xs: 1.5, sm: 2 },
+        px: { xs: 1, sm: 1.5 },
+        pt: { xs: 0.5, sm: 0.75 },
+        pb: { xs: 1.25, sm: 1.5 },
     } as const;
 
     const desktopLayoutSx = {
@@ -1024,6 +1024,19 @@ export const DashboardPage: React.FC = () => {
                 overflowY: isMobile ? 'auto' : 'hidden',
             }}
         >
+            {isMobile && (
+                <Typography
+                    variant="subtitle1"
+                    sx={{
+                        px: { xs: 1, sm: 1.5 },
+                        pt: { xs: 1, sm: 1.5 },
+                        fontWeight: 'bold',
+                        color: 'text.primary',
+                    }}
+                >
+                    首页 / 交易总览
+                </Typography>
+            )}
             <Box sx={isMobile ? mobileLayoutSx : desktopLayoutSx}>
                 {isMobile ? (
                     <>
