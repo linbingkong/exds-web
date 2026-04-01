@@ -97,6 +97,13 @@ const MUTATION_PERMISSION_RULES: MutationPermissionRule[] = [
     { methods: ['delete'], pattern: /^\/api\/v1\/retail-packages\/[^/]+$/, allPermissions: [modulePermission('customer_retail_packages', 'edit'), 'customer:package:delete'] },
 
     { methods: ['post'], pattern: /^\/api\/v1\/manual-adjustment\/(save|reset)$/, allPermissions: [modulePermission('forecast_short_term_load', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/bid\/trade-sources\/manual$/, allPermissions: [modulePermission('strategy_dayahead', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/bid\/trade-sources\/auto$/, allPermissions: [modulePermission('strategy_dayahead', 'edit')] },
+    { methods: ['put', 'patch'], pattern: /^\/api\/v1\/bid\/trade-sources\/[^/]+$/, allPermissions: [modulePermission('strategy_dayahead', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/bid\/trade-sources\/[^/]+\/status$/, allPermissions: [modulePermission('strategy_dayahead', 'edit')] },
+    { methods: ['delete'], pattern: /^\/api\/v1\/bid\/trade-sources\/[^/]+$/, allPermissions: [modulePermission('strategy_dayahead', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/bid\/simulations\/manual-save$/, allPermissions: [modulePermission('strategy_dayahead', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/bid\/simulations\/manual-reset$/, allPermissions: [modulePermission('strategy_dayahead', 'edit')] },
     { methods: ['post'], pattern: /^\/api\/v1\/price-forecast\/trigger$/, allPermissions: [modulePermission('forecast_dayahead_price', 'edit')] },
     { methods: ['post'], pattern: /^\/api\/v1\/trade-review\/monthly-recalculate$/, allPermissions: [modulePermission('review_monthly', 'edit')] },
     { methods: ['post', 'put', 'patch', 'delete'], pattern: /^\/api\/v1\/weather\/locations(\/.*)?$/, allPermissions: [modulePermission('forecast_weather_data', 'edit')] },

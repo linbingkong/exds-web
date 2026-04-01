@@ -36,6 +36,7 @@ import { changeMyPassword, updateMyProfile } from '../api/authManagement';
 
 const drawerWidth = 260;
 const sidebarStorageKey = 'exds:desktop-sidebar-collapsed';
+const FULL_BLEED_TAB_PATHS = ['/dashboard', '/trading-strategy/day-ahead'];
 
 export const DesktopTabLayout: React.FC = () => {
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -437,10 +438,10 @@ export const DesktopTabLayout: React.FC = () => {
                 <Box
                     sx={{
                         flexGrow: 1,
-                        p: activeTabKey === '/dashboard' ? 0 : 3,
-                        overflow: activeTabKey === '/dashboard' ? 'hidden' : 'auto',
+                        p: FULL_BLEED_TAB_PATHS.includes(activeTabKey || '') ? 0 : 3,
+                        overflow: FULL_BLEED_TAB_PATHS.includes(activeTabKey || '') ? 'hidden' : 'auto',
                         minHeight: 0,
-                        display: activeTabKey === '/dashboard' ? 'flex' : 'block',
+                        display: FULL_BLEED_TAB_PATHS.includes(activeTabKey || '') ? 'flex' : 'block',
                     }}
                 >
                     {openTabs.length === 0 ? (
@@ -464,7 +465,7 @@ export const DesktopTabLayout: React.FC = () => {
                                 sx={{
                                     display: activeTabKey === tab.key ? 'flex' : 'none',
                                     flexDirection: 'column',
-                                    height: tab.key === '/dashboard' ? '100%' : 'auto',
+                                    height: FULL_BLEED_TAB_PATHS.includes(tab.key) ? '100%' : 'auto',
                                     minHeight: 0,
                                     width: '100%',
                                 }}

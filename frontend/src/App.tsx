@@ -50,6 +50,7 @@ import { IntentCustomerDiagnosisPage } from './pages/IntentCustomerDiagnosisPage
 import UserPermissionsPage from './pages/UserPermissionsPage';
 import MonthlyTradeReviewPage from './pages/MonthlyTradeReviewPage';
 import CustomerProfitAnalysisPage from './pages/CustomerProfitAnalysisPage';
+import DayAheadSimulationPage from './pages/DayAheadSimulationPage';
 import { TabProvider } from './contexts/TabContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { DesktopTabLayout } from './layouts/DesktopTabLayout';
@@ -120,7 +121,7 @@ const ResponsiveLayout: React.FC = () => {
                     <Route path="trading-strategy/contract-curve" element={<PlaceholderPage />} />
                     <Route path="trading-strategy/monthly" element={<PlaceholderPage />} />
                     <Route path="trading-strategy/d-2" element={<PlaceholderPage />} />
-                    <Route path="trading-strategy/day-ahead" element={<PlaceholderPage />} />
+                    <Route path="trading-strategy/day-ahead" element={<DayAheadSimulationPage />} />
 
                     {/* 交易复盘 */}
                     <Route path="trade-review/monthly-review" element={<MonthlyTradeReviewPage />} />

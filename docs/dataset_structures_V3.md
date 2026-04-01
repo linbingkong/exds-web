@@ -803,3 +803,146 @@
 - `updated_at`
 
 ---
+
+
+## 13. `bid_trade_sources` - 模拟交易来源配置
+
+该集合用于维护模拟交易所需的交易来源主数据，支持人工方案和自动策略的统一管理。
+
+**业务价值**:
+- 为外部交易系统提供可维护的交易来源列表
+- 支持新增、停用、删除人工方案和自动策略
+- 作为 `bid_strategy_results.trade_source_id` 的引用来源
+
+- **数据来源**: Web 页面维护 / 后端管理接口
+- **更新频率**: 按需
+- **数据粒度**: 配置级
+
+### 13.1 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `trade_source_id` | String | **[主键]** 交易来源唯一标识 |
+| `trade_type` | String | 交易类型：`manual` / `auto` |
+| `trade_source_name` | String | 交易来源名称 |
+| `strategy_id` | String | 自动策略标识；人工方案可为空 |
+| `status` | String | 状态：`active` / `inactive` |
+| `params` | Object | 可选参数；自动策略可存阈值等，人工方案可为空 |
+| `created_at` | ISODate | 创建时间 |
+| `updated_at` | ISODate | 更新时间 |
+
+
+### 13.2 `params` 参数字典表
+
+`bid_trade_sources.params` 用于保存“该交易来源当前实际使用的运行参数”。
+
+- 文档负责说明字段含义、默认值来源和适用策略
+- 数据集负责保存每个 `trade_source_id` 当前实际生效的参数值
+- 新建交易来源时，后端会按 `strategy_id` 自动补齐默认参数并写入 `params`
+- 前端修改参数后，预测和结算流程直接读取该交易来源的 `params`
+
+| 参数名 | 数据类型 | 适用策略 | 默认值来源 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `max_bid_mwh_per_period` | Number | 全部策略 / 人工方案 | `config.ini` 的 `BID.max_bid_mwh_per_period` | 单时段申报电量上限。`bid_mwh = bid_ratio × max_bid_mwh_per_period` |
+| `max_adjacent_jump` | Number | `S2_SmoothLinkedPeriods`、`S3_DailyBudgetAllocator` | 代码默认值 | 相邻时段最大允许报量跳变档差 |
+| `spike_shave_min_ratio` | Number | `S2_SmoothLinkedPeriods` | 代码默认值 | 判定“中心时段为孤立尖峰”的最小申报比例阈值 |
+| `spike_shave_neighbor_max_ratio` | Number | `S2_SmoothLinkedPeriods` | 代码默认值 | 判定“孤立尖峰”时，两侧时段允许的最大申报比例 |
+| `continuous_lift_min_ratio` | Number | `S2_SmoothLinkedPeriods` | 代码默认值 | 连续正信号联动抬升时，中间时段的最小申报比例阈值 |
+| `weak_positive_quantile` | Number | `S2_SmoothLinkedPeriods` | 代码默认值 | 弱正信号判定使用的 `expected_value` 分位点 |
+| `daily_budget_ratio_base` | Number | `S3_DailyBudgetAllocator` | `config.ini` 的 `BID.daily_budget_ratio_base` | 全天总报量预算的基础比例 |
+| `daily_budget_floor_ratio` | Number | `S3_DailyBudgetAllocator` | `config.ini` 的 `BID.daily_budget_floor_ratio` | 全天总报量预算的下限比例 |
+| `daily_budget_ceiling_ratio` | Number | `S3_DailyBudgetAllocator` | `config.ini` 的 `BID.daily_budget_ceiling_ratio` | 全天总报量预算的上限比例 |
+| `strong_ev_quantile` | Number | `S3_DailyBudgetAllocator` | 代码默认值 | 识别强信号时段使用的 `expected_value` 分位点 |
+| `isolated_point_keep_quantile` | Number | `S3_DailyBudgetAllocator` | 代码默认值 | 保留孤立高分时段使用的分位点阈值 |
+
+### 13.3 索引配置
+
+```javascript
+db.bid_trade_sources.createIndex({
+    "trade_source_id": 1
+}, { unique: true })
+
+db.bid_trade_sources.createIndex({
+    "trade_type": 1,
+    "status": 1
+})
+```
+
+---
+
+## 14. `bid_strategy_results` - 模拟交易结果
+
+该集合用于保存模拟交易页面中的每笔交易记录，以及目标日后续结算回填的收益结果。
+
+**业务价值**:
+- 统一承载人工交易和自动交易结果
+- 保存 48 点申报曲线和对应申报电量
+- 在实时现货价格发布后回填 48 点结算价差和收益
+- 支撑页面展示、收益统计和历史查询
+
+- **数据来源**: 自动交易任务 / Web 页面人工录入 / 结算回填任务
+- **更新频率**: 每日多次
+- **数据粒度**: 30分钟，每日48个数据点
+
+### 14.1 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `trade_id` | String | **[复合主键]** 交易记录唯一标识，当前自动交易默认格式为 `{trade_source_id}_{YYYYMMDD}` |
+| `trade_type` | String | 交易类型：`manual` / `auto` |
+| `trade_source_id` | String | 交易来源 ID，引用 `bid_trade_sources.trade_source_id` |
+| `trade_source_name` | String | 交易来源名称快照，便于历史展示 |
+| `strategy_id` | String | 策略标识；仅自动交易必填 |
+| `forecast_date` | ISODate | 交易生成时间 |
+| `target_date` | ISODate | **[复合主键]** 申报目标日期 |
+| `trade_date_str` | String | 日期字符串，格式 `YYYY-MM-DD` |
+| `status` | String | 记录状态：`created` / `settled` |
+| `max_bid_mwh_per_period` | Number | 单时段申报电量上限 |
+| `bid_ratio` | Array[48] | 48 点申报比例，范围 0~1 |
+| `bid_mwh` | Array[48] | 48 点申报电量，计算方式为 `bid_ratio × max_bid_mwh_per_period` |
+| `rt_price_30m` | Array[48] | 结算回填后的 48 点实时现货价格 |
+| `econ_price_30m` | Array[48] | 结算回填后的 48 点经济出清价格 |
+| `settlement_spread` | Array[48] | 48 点实际结算价差 `rt - econ` |
+| `period_pnl` | Array[48] | 48 点实际收益 |
+| `period_result_flag` | Array[48] | 48 点结果标记：`win` / `loss` / `flat` |
+| `daily_bid_mwh` | Number | 全天申报总电量 |
+| `daily_expected_pnl` | Number | 全天预期收益 |
+| `daily_realized_pnl` | Number | 全天实际收益 |
+| `daily_win_periods` | Number | 全天正收益时段数 |
+| `daily_loss_periods` | Number | 全天负收益时段数 |
+| `daily_avg_spread` | Number | 全天平均结算价差 |
+| `settled_at` | ISODate | 完成结算回填的时间 |
+| `created_at` | ISODate | 创建时间 |
+| `updated_at` | ISODate | 更新时间 |
+
+**说明**:
+- 自动交易当前会额外保存模型输出 `p_positive`、`expected_value`，用于策略复盘和结果解释。
+- 页面中的交易对比、收益排序等优先基于本表实时计算，不单独持久化复杂对比字段。
+- 当前代码采用 `trade_id + target_date` 做唯一约束，同一交易来源对同一目标日重复生成时执行覆盖更新，而不是保留多版本记录。
+
+### 14.2 索引配置
+
+```javascript
+db.bid_strategy_results.createIndex({
+    "trade_id": 1,
+    "target_date": 1
+}, { unique: true })
+
+db.bid_strategy_results.createIndex({
+    "target_date": 1,
+    "trade_type": 1,
+    "strategy_id": 1
+})
+
+db.bid_strategy_results.createIndex({
+    "status": 1,
+    "target_date": 1
+})
+
+db.bid_strategy_results.createIndex({
+    "trade_source_id": 1,
+    "target_date": 1
+})
+```
+
+---
