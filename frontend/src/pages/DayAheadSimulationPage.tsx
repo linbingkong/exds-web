@@ -1391,26 +1391,36 @@ export const DayAheadSimulationPage: React.FC = () => {
                         <Box
                             sx={{
                                 display: 'grid',
-                                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))' },
+                                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', md: 'repeat(9, minmax(0, 1fr))' },
+                                gridAutoRows: 'minmax(0, 1fr)',
                                 gap: 0.75,
+                                alignItems: 'stretch',
                             }}
                         >
                             {reviewMetricItems.map((item) => (
                                 <Box
                                     key={item.title}
                                     sx={{
-                                        px: 1.25,
-                                        py: 1,
-                                        borderRadius: 1.5,
-                                        border: '1px solid',
+                                        px: { xs: 1, md: 0.75 },
+                                        py: { xs: 0.75, md: 0.625 },
+                                        border: 1,
                                         borderColor: 'divider',
-                                        bgcolor: 'rgba(248,250,252,0.9)',
+                                        borderRadius: 2,
+                                        bgcolor: 'grey.50',
+                                        minWidth: 0,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'center',
                                         minHeight: 0,
                                         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
                                         overflow: 'hidden',
                                     }}
                                 >
-                                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                                    <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{ lineHeight: 1.15, fontSize: { md: '0.68rem', lg: '0.72rem' } }}
+                                    >
                                         {item.title}
                                     </Typography>
                                     <Typography
@@ -1419,8 +1429,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             mt: 0.25,
                                             fontWeight: 700,
                                             color: item.color || 'text.primary',
-                                            fontSize: { xs: '0.92rem', md: '1rem' },
-                                            lineHeight: 1.2,
+                                            fontSize: { xs: '0.92rem', md: '0.82rem', lg: '0.88rem' },
+                                            lineHeight: 1.15,
                                             wordBreak: 'break-word',
                                         }}
                                     >
