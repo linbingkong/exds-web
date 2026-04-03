@@ -82,13 +82,16 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label })
     const point = payload.find((p) => p.payload)?.payload;
     const predicted = payload.find((p) => p.dataKey === 'predicted_price')?.value ?? null;
     const actual = payload.find((p) => p.dataKey === 'actual_price')?.value ?? null;
+    const preSchedule = payload.find((p) => p.dataKey === 'pre_schedule_price')?.value ?? null;
     const conf80Lower = point?.confidence_80_lower ?? null;
     const conf80Upper = point?.confidence_80_upper ?? null;
     const conf90Lower = point?.confidence_90_lower ?? null;
     const conf90Upper = point?.confidence_90_upper ?? null;
     const predictedValue = typeof predicted === 'number' ? predicted : null;
     const actualValue = typeof actual === 'number' ? actual : null;
+    const preScheduleValue = typeof preSchedule === 'number' ? preSchedule : null;
     const error = (predictedValue !== null && actualValue !== null) ? (predictedValue - actualValue) : null;
+    const preScheduleError = (preScheduleValue !== null && actualValue !== null) ? (preScheduleValue - actualValue) : null;
     const errorColor = error === null
         ? 'text.primary'
         : Math.abs(error) < 20
@@ -108,19 +111,35 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label })
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" color="error.main">实际价格:</Typography>
+                    <Typography variant="body2" color="error.main">日前出清:</Typography>
                     <Typography variant="body2" fontWeight="bold">
                         {actualValue !== null ? `${actualValue.toFixed(2)} 元/MWh` : '-'}
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" color="text.secondary">误差:</Typography>
+                    <Typography variant="body2" color="warning.main">预计划日前:</Typography>
+                    <Typography variant="body2" fontWeight="bold">
+                        {preScheduleValue !== null ? `${preScheduleValue.toFixed(2)} 元/MWh` : '-'}
+                    </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <Typography variant="body2" color="text.secondary">预测误差:</Typography>
                     <Typography
                         variant="body2"
                         fontWeight="bold"
                         color={errorColor}
                     >
                         {error !== null ? `${error > 0 ? '+' : ''}${error.toFixed(2)} 元/MWh` : '-'}
+                    </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <Typography variant="body2" color="text.secondary">预计划误差:</Typography>
+                    <Typography
+                        variant="body2"
+                        fontWeight="bold"
+                        color={preScheduleError === null ? 'text.primary' : Math.abs(preScheduleError) < 20 ? 'success.main' : 'warning.main'}
+                    >
+                        {preScheduleError !== null ? `${preScheduleError > 0 ? '+' : ''}${preScheduleError.toFixed(2)} 元/MWh` : '-'}
                     </Typography>
                 </Box>
             </Box>
@@ -158,6 +177,31 @@ const getAccuracyColor = (accuracy: number): 'success' | 'warning' | 'error' => 
     if (accuracy >= 90) return 'success';
     if (accuracy >= 85) return 'warning';
     return 'error';
+};
+
+const calculateWmapeAccuracy = (
+    actualValues: Array<number | null | undefined>,
+    comparedValues: Array<number | null | undefined>,
+): number | null => {
+    const pairedValues = actualValues.reduce<Array<{ actual: number; compared: number }>>((acc, actual, index) => {
+        const compared = comparedValues[index];
+        if (typeof actual === 'number' && typeof compared === 'number') {
+            acc.push({ actual, compared });
+        }
+        return acc;
+    }, []);
+
+    if (pairedValues.length === 0) {
+        return null;
+    }
+
+    const denominator = pairedValues.reduce((sum, item) => sum + Math.abs(item.actual), 0);
+    if (denominator === 0) {
+        return null;
+    }
+
+    const numerator = pairedValues.reduce((sum, item) => sum + Math.abs(item.actual - item.compared), 0);
+    return 100 - (numerator / denominator) * 100;
 };
 
 
@@ -708,6 +752,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     const [loadingAccuracyHistory, setLoadingAccuracyHistory] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+    const [availableMaxDate, setAvailableMaxDate] = useState<Date | null>(addDays(new Date(), 1));
     const [historyStartDate, setHistoryStartDate] = useState<Date | null>(subDays(new Date(), 29));
     const [historyEndDate, setHistoryEndDate] = useState<Date | null>(new Date());
     const [showHistoryWmape, setShowHistoryWmape] = useState(true);
@@ -721,8 +766,8 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' | 'warning' }>({ open: false, message: '', severity: 'info' });
     const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    // 日期限制：最多选到明天
-    const maxDate = addDays(new Date(), 1);
+    // 日期限制：以后端实际可用数据日期为准
+    const maxDate = availableMaxDate || addDays(new Date(), 1);
 
     // 计算预测均价
     const avgPredictedPrice = useMemo(() => {
@@ -734,6 +779,13 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     }, [chartData]);
 
     const selectedWmape = accuracy?.wmape_accuracy ?? null;
+    const preScheduleWmape = useMemo(() => {
+        if (chartData.length === 0) return null;
+        return calculateWmapeAccuracy(
+            chartData.map((item) => item.actual_price),
+            chartData.map((item) => item.pre_schedule_price),
+        );
+    }, [chartData]);
     const historyErrorAxisMax = useMemo(() => {
         const values = accuracyHistory.flatMap((item) => [
             typeof item.mae === 'number' ? item.mae : null,
@@ -779,7 +831,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                 setSelectedVersion(data[0].forecast_id);
             } else {
                 setSelectedVersion('');
-                setChartData([]);
+                fetchChartData('', date);
                 setAccuracy(null);
             }
         } catch (err: any) {
@@ -787,6 +839,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
             setError(err.response?.data?.detail || err.message || '获取预测版本失败');
             setVersions([]);
             setSelectedVersion('');
+            fetchChartData('', date);
         } finally {
             setLoadingVersions(false);
         }
@@ -794,7 +847,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
 
     // 加载图表数据
     const fetchChartData = async (forecastId: string, date: Date | null) => {
-        if (!forecastId || !date) return;
+        if (!date) return;
 
         setLoadingChart(true);
         try {
@@ -846,6 +899,23 @@ export const DayAheadPriceForecastPage: React.FC = () => {
             setAccuracyHistory([]);
         } finally {
             setLoadingAccuracyHistory(false);
+        }
+    };
+
+    const fetchMaxAvailableDate = async () => {
+        try {
+            const response = await priceForecastApi.fetchMaxAvailableDate();
+            const nextMaxDate = new Date(response.data.max_available_date);
+            if (!Number.isNaN(nextMaxDate.getTime())) {
+                setAvailableMaxDate(nextMaxDate);
+                setSelectedDate((current) => {
+                    if (!current) return current;
+                    return current > nextMaxDate ? nextMaxDate : current;
+                });
+            }
+        } catch (err) {
+            console.error('获取最大可用日期失败:', err);
+            setAvailableMaxDate(addDays(new Date(), 1));
         }
     };
 
@@ -923,6 +993,11 @@ export const DayAheadPriceForecastPage: React.FC = () => {
         fetchVersions(selectedDate);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedDate, stopPolling]);
+
+    useEffect(() => {
+        fetchMaxAvailableDate();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // 轮询命令状态
     const startPolling = useCallback((cmdId: string) => {
@@ -1234,7 +1309,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                             >
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                     <Typography variant="h6">
-                                        预测与实际价格对比
+                                        预测与出清价格对比
                                     </Typography>
                                     {avgPredictedPrice !== null && (
                                         <Box sx={{
@@ -1278,6 +1353,32 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                                             color={selectedWmape !== null ? `${getAccuracyColor(selectedWmape)}.main` : 'text.primary'}
                                         >
                                             {selectedWmape !== null ? `${selectedWmape.toFixed(2)}%` : '待评估'}
+                                        </Typography>
+                                    </Box>
+                                    <Box sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 1,
+                                        px: 1.5,
+                                        py: 0.5,
+                                        border: '1px solid',
+                                        borderColor: preScheduleWmape !== null ? `${getAccuracyColor(preScheduleWmape)}.light` : 'divider',
+                                        borderRadius: 1,
+                                        bgcolor: preScheduleWmape !== null
+                                            ? getAccuracyColor(preScheduleWmape) === 'success'
+                                                ? 'rgba(46, 125, 50, 0.06)'
+                                                : getAccuracyColor(preScheduleWmape) === 'warning'
+                                                    ? 'rgba(237, 108, 2, 0.08)'
+                                                    : 'rgba(211, 47, 47, 0.06)'
+                                            : 'rgba(0, 0, 0, 0.02)',
+                                    }}>
+                                        <Typography variant="caption" color="text.secondary">预计划vs日前 WMAPE:</Typography>
+                                        <Typography
+                                            variant="body2"
+                                            fontWeight="bold"
+                                            color={preScheduleWmape !== null ? `${getAccuracyColor(preScheduleWmape)}.main` : 'text.primary'}
+                                        >
+                                            {preScheduleWmape !== null ? `${preScheduleWmape.toFixed(2)}%` : '待评估'}
                                         </Typography>
                                     </Box>
                                     {showHistoryMae && (
@@ -1359,8 +1460,8 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                                         }}
                                     >
                                         <Typography color="text.secondary">
-                                            {versions.length === 0
-                                                ? executionState?.title || '该日期暂无预测数据'
+                                            {chartData.length === 0 && versions.length === 0
+                                                ? executionState?.title || '该日期暂无可展示曲线数据'
                                                 : '加载中...'}
                                         </Typography>
                                     </Box>
@@ -1432,7 +1533,18 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                                                 stroke="#d32f2f"
                                                 strokeWidth={2}
                                                 dot={false}
-                                                name="实际价格"
+                                                name="日前出清价格"
+                                                connectNulls
+                                            />
+
+                                            <Line
+                                                type="monotone"
+                                                dataKey="pre_schedule_price"
+                                                stroke="#ed6c02"
+                                                strokeWidth={2}
+                                                dot={false}
+                                                strokeDasharray="6 3"
+                                                name="预计划日前出清价格"
                                                 connectNulls
                                             />
                                         </ComposedChart>

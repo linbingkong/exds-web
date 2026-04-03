@@ -19,6 +19,7 @@ export interface ChartDataPoint {
     time: string;                    // "00:15" ~ "24:00"
     predicted_price: number | null;
     actual_price: number | null;
+    pre_schedule_price?: number | null;
     confidence_80_lower?: number | null;
     confidence_80_upper?: number | null;
     confidence_90_lower?: number | null;
@@ -62,6 +63,10 @@ export interface AccuracyHistoryPoint {
     calculated_at?: string | null;
 }
 
+export interface MaxAvailableDateResponse {
+    max_available_date: string;
+}
+
 // ============ API 调用 ============
 
 export const priceForecastApi = {
@@ -91,6 +96,10 @@ export const priceForecastApi = {
      */
     fetchAccuracyHistory: (params: { start_date: string; end_date: string; forecast_type?: string }) => {
         return apiClient.get<AccuracyHistoryPoint[]>('/api/v1/price-forecast/accuracy-history', { params });
+    },
+
+    fetchMaxAvailableDate: () => {
+        return apiClient.get<MaxAvailableDateResponse>('/api/v1/price-forecast/max-available-date');
     },
 
     /**

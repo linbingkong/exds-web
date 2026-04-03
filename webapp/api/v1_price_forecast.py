@@ -172,6 +172,28 @@ def get_accuracy_history(
         )
 
 
+@router.get(
+    "/max-available-date",
+    response_model=Dict[str, str],
+    status_code=status.HTTP_200_OK,
+    summary="获取最大可用日期",
+    description="返回日前价格预测页面当前可选择的最大日期。"
+)
+def get_max_available_date() -> Dict[str, str]:
+    """获取最大可用日期"""
+    try:
+        service = get_service()
+        return {"max_available_date": service.get_max_available_date()}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"获取最大可用日期失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="服务器内部错误"
+        )
+
+
 # ============ 预测触发相关 API ============
 
 class TriggerRequest(BaseModel):

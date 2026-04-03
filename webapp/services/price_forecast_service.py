@@ -32,6 +32,7 @@ class PriceForecastService:
         self.db = db
         self.forecast_results = db['price_forecast_results']
         self.spot_price = db['day_ahead_spot_price']
+        self.pre_sched_spot_price = db['day_ahead_pre_sched_spot_price']
         self.accuracy_daily = db['forecast_accuracy_daily']
         self._ensure_indexes()
 
@@ -146,23 +147,26 @@ class PriceForecastService:
         """
         try:
             target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+            next_day = target_dt + timedelta(days=1)
 
             # 1. 获取预测数据
-            forecast_docs = list(self.forecast_results.find(
-                {
-                    "forecast_id": forecast_id,
-                    "target_date": target_dt
-                },
-                {
-                    "_id": 0,
-                    "datetime": 1,
-                    "predicted_price": 1,
-                    "confidence_80_lower": 1,
-                    "confidence_80_upper": 1,
-                    "confidence_90_lower": 1,
-                    "confidence_90_upper": 1
-                }
-            ).sort("datetime", 1))
+            forecast_docs: List[Dict[str, Any]] = []
+            if forecast_id:
+                forecast_docs = list(self.forecast_results.find(
+                    {
+                        "forecast_id": forecast_id,
+                        "target_date": target_dt
+                    },
+                    {
+                        "_id": 0,
+                        "datetime": 1,
+                        "predicted_price": 1,
+                        "confidence_80_lower": 1,
+                        "confidence_80_upper": 1,
+                        "confidence_90_lower": 1,
+                        "confidence_90_upper": 1
+                    }
+                ).sort("datetime", 1))
 
             logger.info(f"获取预测数据: {len(forecast_docs)} 条")
             
@@ -171,7 +175,7 @@ class PriceForecastService:
                 sample = forecast_docs[0]
                 logger.info(f"预测数据样本: datetime={sample.get('datetime')}, predicted_price={sample.get('predicted_price')}")
 
-            # 2. 获取实际价格数据
+            # 2. 获取日前实际价格数据
             actual_docs = list(self.spot_price.find(
                 {"date_str": target_date},
                 {"_id": 0, "time_str": 1, "avg_clearing_price": 1}
@@ -184,43 +188,66 @@ class PriceForecastService:
                 sample = actual_docs[0]
                 logger.info(f"实际价格数据样本: time_str={sample.get('time_str')}, avg_clearing_price={sample.get('avg_clearing_price')}")
 
-            # 3. 构建实际价格映射表
+            pre_sched_docs = list(self.pre_sched_spot_price.find(
+                {"date_str": target_date},
+                {"_id": 0, "time_str": 1, "avg_clearing_price": 1}
+            ).sort("time_str", 1))
+            logger.info(f"获取预计划日前价格数据: {len(pre_sched_docs)} 条")
+
+            # 3. 构建价格映射表
             actual_map = {}
             for doc in actual_docs:
                 time_str = doc.get("time_str", "")
                 actual_map[time_str] = doc.get("avg_clearing_price")
+
+            pre_sched_map = {}
+            for doc in pre_sched_docs:
+                time_str = doc.get("time_str", "")
+                pre_sched_map[time_str] = doc.get("avg_clearing_price")
 
             # 调试：输出映射表的键
             if actual_map:
                 sample_keys = list(actual_map.keys())[:5]
                 logger.info(f"实际价格映射表样本键: {sample_keys}")
 
-            # 4. 合并数据
-            result = []
+            forecast_map = {}
             for doc in forecast_docs:
-                dt: datetime = doc.get("datetime")
+                dt: Optional[datetime] = doc.get("datetime")
                 if not dt:
                     continue
-
-                # 计算时间标签
-                # 判断是否为当天的第96个点（次日00:00）
-                next_day = target_dt + timedelta(days=1)
                 if dt.hour == 0 and dt.minute == 0 and dt.date() == next_day.date():
                     time_label = "24:00"
                 else:
                     time_label = dt.strftime("%H:%M")
-
-                # 获取对应的实际价格
-                actual_price = actual_map.get(time_label)
-
-                result.append({
-                    "time": time_label,
+                forecast_map[time_label] = {
                     "predicted_price": doc.get("predicted_price"),
-                    "actual_price": actual_price,
                     "confidence_80_lower": doc.get("confidence_80_lower"),
                     "confidence_80_upper": doc.get("confidence_80_upper"),
                     "confidence_90_lower": doc.get("confidence_90_lower"),
-                    "confidence_90_upper": doc.get("confidence_90_upper")
+                    "confidence_90_upper": doc.get("confidence_90_upper"),
+                }
+
+            # 4. 合并数据，时间轴取预测/日前/预计划的并集
+            all_time_labels = set(actual_map.keys()) | set(pre_sched_map.keys()) | set(forecast_map.keys())
+
+            def sort_key(time_label: str) -> int:
+                if time_label == "24:00":
+                    return 24 * 60
+                hour_str, minute_str = time_label.split(":")
+                return int(hour_str) * 60 + int(minute_str)
+
+            result = []
+            for time_label in sorted(all_time_labels, key=sort_key):
+                forecast_point = forecast_map.get(time_label, {})
+                result.append({
+                    "time": time_label,
+                    "predicted_price": forecast_point.get("predicted_price"),
+                    "actual_price": actual_map.get(time_label),
+                    "pre_schedule_price": pre_sched_map.get(time_label),
+                    "confidence_80_lower": forecast_point.get("confidence_80_lower"),
+                    "confidence_80_upper": forecast_point.get("confidence_80_upper"),
+                    "confidence_90_lower": forecast_point.get("confidence_90_lower"),
+                    "confidence_90_upper": forecast_point.get("confidence_90_upper")
                 })
             
             # 调试：输出合并后的前几条数据
@@ -351,3 +378,38 @@ class PriceForecastService:
         except Exception as e:
             logger.error(f"获取历史准确率曲线失败: {e}", exc_info=True)
             raise ValueError(f"获取历史准确率曲线失败: {str(e)}")
+
+    def get_max_available_date(self) -> str:
+        """获取页面可选择的最大日期。"""
+        try:
+            candidates: List[datetime] = []
+
+            latest_forecast = self.forecast_results.find_one(
+                {},
+                {"_id": 0, "target_date": 1},
+                sort=[("target_date", -1)]
+            )
+            if latest_forecast and isinstance(latest_forecast.get("target_date"), datetime):
+                candidates.append(latest_forecast["target_date"])
+
+            latest_day_ahead = self.spot_price.find_one(
+                {},
+                {"_id": 0, "date_str": 1},
+                sort=[("date_str", -1)]
+            )
+            if latest_day_ahead and latest_day_ahead.get("date_str"):
+                candidates.append(datetime.strptime(latest_day_ahead["date_str"], "%Y-%m-%d"))
+
+            latest_pre_sched = self.pre_sched_spot_price.find_one(
+                {},
+                {"_id": 0, "date_str": 1},
+                sort=[("date_str", -1)]
+            )
+            if latest_pre_sched and latest_pre_sched.get("date_str"):
+                candidates.append(datetime.strptime(latest_pre_sched["date_str"], "%Y-%m-%d"))
+
+            max_date = max(candidates) if candidates else datetime.now() + timedelta(days=1)
+            return max_date.strftime("%Y-%m-%d")
+        except Exception as e:
+            logger.error(f"获取最大可用日期失败: {e}", exc_info=True)
+            raise ValueError(f"获取最大可用日期失败: {str(e)}")
