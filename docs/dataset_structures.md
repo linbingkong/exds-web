@@ -122,6 +122,7 @@
 ---
 
 
+
 ## 5. `real_time_spot_price` - 实时现货价格
 
 该集合存储实时的现货市场出清价格和电量信息。
@@ -136,15 +137,23 @@
 | `datetime` | ISODate | **[主键]** 数据点对应的精确日期和时间。 |
 | `date_str` | String | 日期字符串，格式 `YYYY-MM-DD`。 |
 | `time_str` | String | 时间点字符串，格式 `HH:MM`。 |
+| `id_num` | Number | 原始序号字段。 |
 | `total_clearing_power` | Number | 出清总电量 (MWh)，精度4位小数。 |
 | `thermal_clearing_power` | Number | 火电出清电量 (MWh)，精度4位小数。 |
+| `thermal_units` | Number | 火电台数，整数。 |
 | `hydro_clearing_power` | Number | 水电出清电量 (MWh)，精度4位小数。 |
+| `hydro_units` | Number | 水电台数，整数。 |
 | `wind_clearing_power` | Number | 风电出清电量 (MWh)，精度4位小数。 |
+| `wind_units` | Number | 风电台数，整数。 |
 | `solar_clearing_power` | Number | 光伏出清电量 (MWh)，精度4位小数。 |
+| `solar_units` | Number | 光伏台数，整数。 |
 | `pumped_storage_clearing_power` | Number | 抽蓄出清电量 (MWh)，精度4位小数。 |
+| `pumped_storage_units` | Number | 抽蓄台数，整数。 |
 | `battery_storage_clearing_power` | Number | 储能出清电量 (MWh)，精度4位小数。 |
-| `avg_clearing_price` | Number | 出清均价 (元/MWh)，精度2位小数。 |
-| `arithmetic_avg_clearing_price` | Number | 算术出清均价 (元/MWh)，精度2位小数。 |
+| `battery_storage_units` | Number | 储能台数，整数。 |
+| `avg_clearing_price` | Number | 出清均价 (元/MWh)，精度3位小数。 |
+| `arithmetic_avg_clearing_price` | Number | 算术平均出清价 (元/MWh)，仅在原始数据被识别为高频数据并聚合时出现，精度3位小数。 |
+| `avg_bid_price` | Number | 申报均价 (元/MWh)，精度3位小数。 |
 
 ### 5.2. 索引
 
@@ -164,7 +173,30 @@
 
 ---
 
-## 7. `fuel_futures_data` - 燃料期货数据
+## 7. `day_ahead_econ_spot_price` - 全市场经济出清日前现货价格
+
+该集合存储“全市场发布口径”的经济出清日前现货价格和电量信息，页面来源为“日前出清结果 > 经济出清日前现货出清信息”。
+
+- **数据来源**: `rpa.pipelines.spot_price`
+- **更新频率**: 每日
+- **字段说明**: 同 `real_time_spot_price`。
+- **索引**: 同 `real_time_spot_price`。
+
+---
+
+## 8. `day_ahead_pre_sched_spot_price` - 预计划日前现货价格
+
+该集合存储“事前信息 > 预计划日前现货出清信息”页面发布的预计划日前现货价格和电量信息。
+
+- **数据来源**: `rpa.pipelines.spot_price`
+- **更新频率**: 每日
+- **字段说明**: 同 `real_time_spot_price`。
+- **索引**: 同 `real_time_spot_price`。
+
+
+---
+
+## 9. `fuel_futures_data` - 燃料期货数据
 
 该集合存储燃料期货（动力煤、焦煤、原油）的日频价格数据，用于辅助电力成本预测。
 
@@ -172,7 +204,7 @@
 - **更新频率**: 每日
 - **数据粒度**: 日频
 
-### 7.1. 字段说明
+### 9.1. 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -190,12 +222,12 @@
 | `created_at` | ISODate | 记录创建时间。 |
 | `updated_at` | ISODate | 记录更新时间。 |
 
-### 7.2. 索引
+### 9.2. 索引
 
 - `(date: 1)`: 唯一索引，确保每天只有一条记录。
 
 
-## 8. `price_forecast_results` - 价格预测结果
+## 10. `price_forecast_results` - 价格预测结果
 
 该集合存储日前价格预测模型的输出结果，支持 D-1 和 D-2 两种预测模式。
 
@@ -211,7 +243,7 @@
   - D-1 预测：D 日（次日1天）
   - D-2 预测：D ~ D+9 日（10个目标日，共960个预测点）
 
-### 8.1 字段说明
+### 10.1 字段说明
 
 | 字段名 | 数据类型 | 描述 | 示例 |
 | :--- | :--- | :--- | :--- |
@@ -229,14 +261,14 @@
 | `model_version` | String | 模型版本 | "v1.0.3" |
 | `created_at` | ISODate | 记录创建时间（UTC） | 2025-01-17 09:25 |
 
-### 8.2 预测类型定义
+### 10.2 预测类型定义
 
 | forecast_type | 说明 | 执行时间 | 预测范围 |
 | :--- | :--- | :--- | :--- |
 | `d1_price` | D-1 日前价格预测 | D-1 日 09:20 | D 日（次日） |
 | `d2_price` | D-2 日前价格预测 | D-2 日 09:20 | D ~ D+9 日（10天） |
 
-### 8.3 索引配置
+### 10.3 索引配置
 
 ```javascript
 // 复合唯一索引（包含 forecast_type）
@@ -252,7 +284,7 @@ db.price_forecast_results.createIndex({ "forecast_type": 1, "target_date": 1, "d
 db.price_forecast_results.createIndex({ "forecast_date": 1, "target_date": 1 })
 ```
 
-### 8.4 数据示例
+### 10.4 数据示例
 
 **D-1 预测**:
 ```json
@@ -292,7 +324,7 @@ db.price_forecast_results.createIndex({ "forecast_date": 1, "target_date": 1 })
 }
 ```
 
-## 9. `forecast_accuracy_daily` - 预测准确度日报
+## 11. `forecast_accuracy_daily` - 预测准确度日报
 
 该集合存储各类预测模型的**日级别准确度评估结果**，支持多种预测类型和客户维度。
 
@@ -306,7 +338,7 @@ db.price_forecast_results.createIndex({ "forecast_date": 1, "target_date": 1 })
 - **更新频率**: 每日（T+1 回测）
 - **数据粒度**: 日级别（每个预测类型+客户每天 1 条记录）
 
-### 9.1 字段说明
+### 11.1 字段说明
 
 | 字段名 | 数据类型 | 描述 | 用途 |
 | :--- | :--- | :--- | :--- |
@@ -335,7 +367,7 @@ db.price_forecast_results.createIndex({ "forecast_date": 1, "target_date": 1 })
 | `calculated_at` | ISODate | 计算时间 | 数据管理 |
 | `notes` | String | 备注（可选） | 特殊说明 |
 
-### 9.2 预测类型定义
+### 11.2 预测类型定义
 
 | forecast_type | 说明 | 单位 | 数据粒度 |
 | :--- | :--- | :--- | :--- |
@@ -347,7 +379,7 @@ db.price_forecast_results.createIndex({ "forecast_date": 1, "target_date": 1 })
 | `d2_shadow_nonmarket` | D-2 非市场化机组影子预测 | MW | 96点/天 |
 | `load_forecast` | 负荷预测（客户级） | MWh | 48点/天 |
 
-### 9.3 索引配置
+### 11.3 索引配置
 
 ```javascript
 // 复合唯一索引（包含 forecast_id，支持多批次准确度评估）
@@ -368,7 +400,7 @@ db.forecast_accuracy_daily.createIndex({ "forecast_id": 1 })
 db.forecast_accuracy_daily.createIndex({ "customer_id": 1, "target_date": -1 })
 ```
 
-### 9.4 数据示例
+### 11.4 数据示例
 
 **D-1 价格预测**:
 ```json
@@ -426,7 +458,7 @@ db.forecast_accuracy_daily.createIndex({ "customer_id": 1, "target_date": -1 })
 }
 ```
 
-## 10. 天气数据 (双集合架构 v2.2)
+## 12. 天气数据 (双集合架构 v2.2)
 
 天气数据采用**双集合架构**，彻底分离实况与预测数据，避免数据泄露。
 
@@ -444,7 +476,7 @@ db.forecast_accuracy_daily.createIndex({ "customer_id": 1, "target_date": -1 })
   - 实况: 2023-08-01
   - 预测: 2024-02-15 (Previous Runs API起始)
 
-### 10.1 集合定义
+### 12.1 集合定义
 
 | 集合名称 | 用途 | 唯一键 | 数据来源 |
 | :--- | :--- | :--- | :--- |
@@ -457,7 +489,7 @@ db.forecast_accuracy_daily.createIndex({ "customer_id": 1, "target_date": -1 })
 - **防止数据泄露**: 特征工程时根据`forecast_date`筛选，确保只用发布日之前的数据
 - **站点管理**: 使用 `weather_locations` 集中管理需要下载和处理的站点，通过 `enabled` 字段动态控制
 
-### 10.2 `weather_locations` 字段说明
+### 12.2 `weather_locations` 字段说明
 
 | 字段名 | 数据类型 | 描述 | 用途 |
 | :--- | :--- | :--- | :--- |
@@ -467,7 +499,7 @@ db.forecast_accuracy_daily.createIndex({ "customer_id": 1, "target_date": -1 })
 | `longitude` | Number | 经度 (WGS84) | API请求参数 |
 | `enabled` | Boolean | 是否启用 | **下载控制开关** |
 
-### 10.3 `weather_actuals` 字段说明
+### 12.3 `weather_actuals` 字段说明
 
 | 字段名 | 数据类型 | 描述 | 用途 |
 | :--- | :--- | :--- | :--- |
@@ -482,7 +514,7 @@ db.forecast_accuracy_daily.createIndex({ "customer_id": 1, "target_date": -1 })
 | `cloud_cover` | Number | 云量 (%) | **光伏预测关键** |
 | `creation_timestamp` | ISODate | 数据写入时间 | 数据管理 |
 
-### 10.4 `weather_forecasts` 字段说明
+### 12.4 `weather_forecasts` 字段说明
 
 | 字段名 | 数据类型 | 描述 | 用途 |
 | :--- | :--- | :--- | :--- |
@@ -509,7 +541,7 @@ db.forecast_accuracy_daily.createIndex({ "customer_id": 1, "target_date": -1 })
 - Day 6-7: 质量下降（官方警告）
 - Day 8+: API不提供
 
-### 10.5 索引配置
+### 12.5 索引配置
 
 ```javascript
 // weather_actuals
@@ -529,7 +561,7 @@ db.weather_forecasts.createIndex({ "forecast_date": 1 })
 db.weather_forecasts.createIndex({ "location_id": 1, "target_timestamp": 1 })
 ```
 
-### 10.6 数据示例
+### 12.6 数据示例
 
 **weather_actuals** (历史实况):
 ```json
@@ -566,7 +598,7 @@ db.weather_forecasts.createIndex({ "location_id": 1, "target_timestamp": 1 })
 
 **说明**: D-2日(11-28)发布的预测覆盖D-1到D+5(11-29到12-03)，共7天168条记录
 
-### 10.7 数据可用性
+### 12.7 数据可用性
 
 **在 D-2 日预测时**:
 - ✅ **可用**: D-1 ~ D+5 的天气预测（`weather_forecasts`, forecast_date=D-2, 共168条）
@@ -601,7 +633,7 @@ actual_data = db.weather_actuals.find({
 }).sort('timestamp', 1)
 ```
 
-### 10.8 迁移说明
+### 12.8 迁移说明
 
 **⚠️ 重要**: 旧的单集合 `weather_data` 已废弃，请使用新的双集合架构。
 
@@ -614,7 +646,7 @@ actual_data = db.weather_actuals.find({
 ---
 
 
-## 17. `day_ahead_econ_price` - 日前经济出清价格
+## 13. `day_ahead_econ_price` - 日前经济出清价格
 
 该集合存储用于差价结算的日前经济出清价格数据（通常来源于“日前出清结果_用户”页面）。
 
@@ -622,7 +654,7 @@ actual_data = db.weather_actuals.find({
 - **更新频率**: 每日
 - **业务意义**: 专门用于电力市场差价结算的经济出清价格。
 
-### 17.1. 字段说明
+### 13.1. 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -632,7 +664,7 @@ actual_data = db.weather_actuals.find({
 | `clearing_power` | Number | 出清电量 (MWh)，精度4位小数。 |
 | `clearing_price` | Number | 经济出清价格 (元/MWh)，即 `econ_clearing_price`，精度2位小数。 |
 
-### 17.2. 索引
+### 13.2. 索引
 
 - `(datetime: 1)`: 唯一索引，确保每个时间点的数据唯一。
 - `(date_str: 1, time_str: 1)`: 复合索引，用于按日期和时间点查询。
@@ -640,14 +672,14 @@ actual_data = db.weather_actuals.find({
 ---
 
 
-## 18. `task_execution_logs` - 系统/任务执行日志
+## 14. `task_execution_logs` - 系统/任务执行日志
 
 该集合用于统一记录系统各类后台任务（定时任务、事件驱动任务等）的执行过程和结果。
 
 - **数据来源**: `webapp.scheduler.logger.TaskLogger`
 - **更新频率**: 实时记录任务开始与结束
 
-### 18.1. 字段说明
+### 14.1. 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -668,7 +700,7 @@ actual_data = db.weather_actuals.find({
 | `created_at` | ISODate | 记录创建时间。 |
 | `updated_at` | ISODate | 记录最后更新时间。 |
 
-### 18.2. 索引
+### 14.2. 索引
 
 - `(task_id: 1)`: 唯一索引。
 - `(task_type: 1, start_time: -1)`: 用于按任务类型查询执行历史。
@@ -676,14 +708,14 @@ actual_data = db.weather_actuals.find({
 
 ---
 
-## 19. `system_alerts` - 系统告警
+## 15. `system_alerts` - 系统告警
 
 该集合存储系统自动触发的所有异常告警信息，包括数据质量异常、系统错误等。
 
 - **数据来源**: 任务自动逻辑（如 `aggregation_jobs.py`）
 - **更新频率**: 异常发生时实时创建
 
-### 19.1. 字段说明
+### 15.1. 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -702,7 +734,7 @@ actual_data = db.weather_actuals.find({
 | `resolved_by` | String | 解决人。 |
 | `resolution_note` | String | 解决说明备注。 |
 
-### 19.2. 索引
+### 15.2. 索引
 
 - `(alert_id: 1)`: 唯一索引。
 - `(status: 1, level: 1)`: 用于控制台显示活跃的高级告警。
@@ -710,14 +742,14 @@ actual_data = db.weather_actuals.find({
 
 ---
 
-## 20. `task_commands` - 远程任务/指令
+## 16. `task_commands` - 远程任务/指令
 
 该集合作为指令中转站，用于前端向后端工作进程或外部服务（如 RPA）下发执行指令。
 
 - **数据来源**: 前端 API 触发
 - **消费端**: 后端调度器/执行器
 
-### 20.1. 字段说明
+### 16.1. 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -734,12 +766,12 @@ actual_data = db.weather_actuals.find({
 | `completed_at` | ISODate | 完成执行时间。 |
 | `result_message` | String | 执行结果消息反馈。 |
 
-### 20.2. 索引
+### 16.2. 索引
 
 - `(status: 1, priority: -1, created_at: 1)`: 消费端轮询索引。
 - `(command_id: 1)`: 唯一索引。
 
-## 21. `load_forecast_results` - 客户负荷预测结果
+## 17. `load_forecast_results` - 客户负荷预测结果
 
 该集合存储客户级别的负荷预测输出，包括单客户预测、聚合预测及配套的精度指标。
 
@@ -753,7 +785,7 @@ actual_data = db.weather_actuals.find({
 - **数据粒度**: 30分钟，每日48个数据点
 - **预测视野**: D, D+1, D+2 (通过 Gap 区分)
 
-### 21.1 字段说明
+### 17.1 字段说明
 
 | 字段名 | 数据类型 | 描述 | 示例 |
 | :--- | :--- | :--- | :--- |
@@ -777,7 +809,7 @@ actual_data = db.weather_actuals.find({
 | `aggregated_count` | Number | 聚合客户统计 (仅针对 AGGREGATE 记录) | 验证覆盖率 |
 | `created_at` | ISODate | 记录创建时间 | |
 
-### 21.2 索引配置
+### 17.2 索引配置
 
 ```javascript
 // 复合唯一索引
@@ -791,7 +823,7 @@ db.customer_load_forecasts.createIndex({
 db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 ```
 
-## 22. `spot_settlement_daily` - 平台日报结算数据
+## 18. `spot_settlement_daily` - 平台日报结算数据
 
 该集合存储交易平台发布的批发侧**日清算结果（电能量）**，用于与本地预结算数据进行比对。
 
@@ -799,7 +831,7 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 - **更新频率**: 每日 (D+2)
 - **业务意义**: 官方电能量结算依据。
 
-### 22.1 字段说明
+### 18.1 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -814,13 +846,13 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 | `total_fee` | Number | 电能量电费合计 (元)。 |
 | `avg_price` | Number | 结算均价 (元/MWh)。 |
 
-### 22.2 索引
+### 18.2 索引
 
 - `(operating_date: 1)`: 唯一索引。
 
 ---
 
-## 23. `spot_settlement_period` - 平台分时结算数据
+## 19. `spot_settlement_period` - 平台分时结算数据
 
 该集合存储交易平台发布的批发侧**分时结算详情** (48点)，提供精细化的费用构成分析。
 
@@ -828,7 +860,7 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 - **更新频率**: 每日 (D+2)
 - **数据粒度**: 30分钟，每日48点
 
-### 23.1 字段说明
+### 19.1 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -847,7 +879,7 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 | `avg_price` | Number | 结算均价 (元/MWh)。 |
 
 
-## 24. `mechanism_energy_monthly` - 机制电量月度数据
+## 20. `mechanism_energy_monthly` - 机制电量月度数据
 
 该集合存储**机制电量**（新能源机制）的月度分时数据。机制电量不参与市场化差价结算，在计算偏差考核时需从实际用电量中扣除。
 
@@ -855,7 +887,7 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 - **更新频率**: 每月发布
 - **数据处理**: 结算时需将月度值平均分配到当月每一天。
 
-### 24.1 字段说明
+### 20.1 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -863,6 +895,6 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 | `entity_name` | String | 市场成员名称。 |
 | `period_values` | Array\<Float\> | 48点电量值数组 (MWh) - **月度总值**。数组下标对应时段 (0 -> Period 1)。 |
 
-### 24.2 索引
+### 20.2 索引
 
 - `(month_str: 1, entity_name: 1)`: 唯一索引。
