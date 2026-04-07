@@ -47,7 +47,7 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import { format, addDays, startOfMonth, subDays } from 'date-fns';
+import { format, addDays, startOfDay, startOfMonth, subDays } from 'date-fns';
 import {
     ComposedChart,
     LineChart,
@@ -739,7 +739,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     const canEdit = hasPermission('module:forecast_dayahead_price:edit');
 
     // 状态管理
-    const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+    const [selectedDate, setSelectedDate] = useState<Date | null>(addDays(startOfDay(new Date()), 1));
     const [versions, setVersions] = useState<ForecastVersion[]>([]);
     const [selectedVersion, setSelectedVersion] = useState<string>('');
     const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
@@ -752,9 +752,9 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     const [loadingAccuracyHistory, setLoadingAccuracyHistory] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-    const [availableMaxDate, setAvailableMaxDate] = useState<Date | null>(addDays(new Date(), 1));
-    const [historyStartDate, setHistoryStartDate] = useState<Date | null>(subDays(new Date(), 29));
-    const [historyEndDate, setHistoryEndDate] = useState<Date | null>(new Date());
+    const [availableMaxDate, setAvailableMaxDate] = useState<Date | null>(addDays(startOfDay(new Date()), 1));
+    const [historyStartDate, setHistoryStartDate] = useState<Date | null>(subDays(startOfDay(new Date()), 28));
+    const [historyEndDate, setHistoryEndDate] = useState<Date | null>(addDays(startOfDay(new Date()), 1));
     const [showHistoryWmape, setShowHistoryWmape] = useState(true);
     const [showHistoryMae, setShowHistoryMae] = useState(false);
     const [showHistoryRmse, setShowHistoryRmse] = useState(false);
@@ -767,7 +767,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // 日期限制：以后端实际可用数据日期为准
-    const maxDate = availableMaxDate || addDays(new Date(), 1);
+    const maxDate = availableMaxDate || addDays(startOfDay(new Date()), 1);
 
     // 计算预测均价
     const avgPredictedPrice = useMemo(() => {
@@ -905,22 +905,23 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     const fetchMaxAvailableDate = async () => {
         try {
             const response = await priceForecastApi.fetchMaxAvailableDate();
-            const nextMaxDate = new Date(response.data.max_available_date);
+            const nextMaxDate = startOfDay(new Date(response.data.max_available_date));
             if (!Number.isNaN(nextMaxDate.getTime())) {
                 setAvailableMaxDate(nextMaxDate);
                 setSelectedDate((current) => {
                     if (!current) return current;
-                    return current > nextMaxDate ? nextMaxDate : current;
+                    const normalizedCurrent = startOfDay(current);
+                    return normalizedCurrent > nextMaxDate ? nextMaxDate : normalizedCurrent;
                 });
             }
         } catch (err) {
             console.error('获取最大可用日期失败:', err);
-            setAvailableMaxDate(addDays(new Date(), 1));
+            setAvailableMaxDate(addDays(startOfDay(new Date()), 1));
         }
     };
 
     const handleHistoryQuickSelect = (type: 'last7' | 'last30' | 'last60' | 'thisMonth') => {
-        const baseDate = selectedDate || new Date();
+        const baseDate = selectedDate || addDays(startOfDay(new Date()), 1);
         switch (type) {
             case 'last7':
                 setHistoryStartDate(subDays(baseDate, 6));
@@ -968,7 +969,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     // 日期导航
     const handleShiftDate = (days: number) => {
         if (!selectedDate) return;
-        const newDate = addDays(selectedDate, days);
+        const newDate = startOfDay(addDays(selectedDate, days));
         // 限制最大日期为明天
         if (newDate > maxDate) return;
         setSelectedDate(newDate);
@@ -1156,7 +1157,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                     <DatePicker
                         label="选择日期"
                         value={selectedDate}
-                        onChange={(date) => setSelectedDate(date)}
+                        onChange={(date) => setSelectedDate(date ? startOfDay(date) : null)}
                         disabled={loading}
                         maxDate={maxDate}
                         slotProps={{
