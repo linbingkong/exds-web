@@ -805,7 +805,7 @@
 ---
 
 
-## 13. `bid_trade_sources` - 模拟交易来源配置
+## 18. `bid_trade_sources` - 模拟交易来源配置
 
 该集合用于维护模拟交易所需的交易来源主数据，支持人工方案和自动策略的统一管理。
 
@@ -827,10 +827,9 @@
 | `trade_source_name` | String | 交易来源名称 |
 | `strategy_id` | String | 自动策略标识；人工方案可为空 |
 | `status` | String | 状态：`active` / `inactive` |
-| `params` | Object | 可选参数；自动策略可存阈值等，人工方案可为空 |
+| `params` | Object | 交易来源运行参数。自动策略必须保存当前生效参数；人工方案通常至少保存 `max_bid_mwh_per_period` |
 | `created_at` | ISODate | 创建时间 |
 | `updated_at` | ISODate | 更新时间 |
-
 
 ### 13.2 `params` 参数字典表
 
@@ -854,8 +853,79 @@
 | `daily_budget_ceiling_ratio` | Number | `S3_DailyBudgetAllocator` | `config.ini` 的 `BID.daily_budget_ceiling_ratio` | 全天总报量预算的上限比例 |
 | `strong_ev_quantile` | Number | `S3_DailyBudgetAllocator` | 代码默认值 | 识别强信号时段使用的 `expected_value` 分位点 |
 | `isolated_point_keep_quantile` | Number | `S3_DailyBudgetAllocator` | 代码默认值 | 保留孤立高分时段使用的分位点阈值 |
+| `impact_cap_ratio` | Number | `S4_RiskControlledRefactor`、`S5_RiskControlledRefactor` | `config.ini` 的 `BID.impact_cap_ratio` | 单时段申报量占市场参考电量的最大比例上限，用于限制市场冲击 |
+| `high_risk_floor_multiplier` | Number | `S4_RiskControlledRefactor`、`S5_RiskControlledRefactor` | `config.ini` 的 `BID.high_risk_floor_multiplier` | 高风险日下对全天预算做进一步压缩时使用的系数 |
+| `high_risk_threshold` | Number | `S4_RiskControlledRefactor`、`S5_RiskControlledRefactor` | `config.ini` 的 `BID.high_risk_threshold` | 判定“高风险日”的风险分阈值 |
+| `pre_sched_gap_penalty_threshold` | Number | `S5_RiskControlledRefactor` | `config.ini` 的 `BID.pre_sched_gap_penalty_threshold` | 预计划价格与自研价格预测偏差过大时触发额外降仓的阈值 |
+| `high_risk_max_ratio` | Number | `S5_RiskControlledRefactor` | `config.ini` 的 `BID.high_risk_max_ratio` | 高风险日单时段允许的最高申报比例上限 |
+| `model_path` | String | 自动策略 | 代码默认值或主数据显式配置 | 该交易来源预测时默认加载的模型文件路径 |
 
-### 13.3 索引配置
+### 13.3 `AUTO_S5.params` 中文说明
+
+当前库中 `AUTO_S5` 对应 `strategy_id = S5_RiskControlledRefactor`，其 `params` 字段保存的是 **S5 工程化模拟运行时的实际生效参数**。预测、滚动训练后的策略输出都会优先读取这份参数，而不是重新使用代码默认值。
+
+当前 `AUTO_S5.params` 示例：
+
+```json
+{
+  "max_bid_mwh_per_period": 300.0,
+  "daily_budget_ratio_base": 0.35,
+  "daily_budget_floor_ratio": 0.2,
+  "daily_budget_ceiling_ratio": 0.6,
+  "max_adjacent_jump": 0.4,
+  "strong_ev_quantile": 0.85,
+  "isolated_point_keep_quantile": 0.95,
+  "impact_cap_ratio": 0.03,
+  "high_risk_floor_multiplier": 0.6,
+  "high_risk_threshold": 1.0,
+  "pre_sched_gap_penalty_threshold": 35.0,
+  "high_risk_max_ratio": 0.4,
+  "model_path": "models_saved/bid/bid_s5_model.joblib"
+}
+```
+
+字段解释如下：
+
+- `max_bid_mwh_per_period`
+  单个 30 分钟时段的申报电量上限。最终 `bid_mwh = bid_ratio × max_bid_mwh_per_period`。
+
+- `daily_budget_ratio_base`
+  全天总预算的基础比例。S5 会先按这个比例估算全天可分配总电量，再结合风险分和市场容量继续压缩或收敛。
+
+- `daily_budget_floor_ratio`
+  全天预算下限。即使当天风险很高，预算压缩也不会低于这一保底比例。
+
+- `daily_budget_ceiling_ratio`
+  全天预算上限。即使信号很强，全天总报量也不能超过这一上限比例。
+
+- `max_adjacent_jump`
+  相邻半小时时段的最大跳变幅度限制。用于抑制报量曲线过于尖锐，避免出现不合理的大起大落。
+
+- `strong_ev_quantile`
+  用于识别强信号时段的 `expected_value` 分位点。值越高，只有更靠前的强信号时段才能进入高优先级分配。
+
+- `isolated_point_keep_quantile`
+  用于保留“孤立高分时段”的阈值。值越高，只有非常强的孤立信号才会被保留下来，普通孤立点更容易被压缩或清零。
+
+- `impact_cap_ratio`
+  市场冲击约束比例。某时段的申报电量不能超过 `market_cleared_mwh_reference × impact_cap_ratio`。
+
+- `high_risk_floor_multiplier`
+  当 `abnormal_day_risk_score` 超过高风险阈值时，用这个系数压缩全天预算。系数越小，风险日越保守。
+
+- `high_risk_threshold`
+  高风险日阈值。风险分达到或超过该值时，S5 会触发更严格的预算压缩和单时段限仓。
+
+- `pre_sched_gap_penalty_threshold`
+  预计划价格与自研价格预测之间的偏差阈值。如果二者差异过大，说明市场先验与模型判断冲突，S5 会对该时段额外降仓。
+
+- `high_risk_max_ratio`
+  高风险日单时段最高允许申报比例。即使其他信号很强，只要当天被判定为高风险，也不能超过这个档位。
+
+- `model_path`
+  `AUTO_S5` 默认加载的模型文件路径。日常自动预测、手工 `bid-predict` 在未显式指定模型路径时，默认使用这里的模型。
+
+### 13.4 索引配置
 
 ```javascript
 db.bid_trade_sources.createIndex({
