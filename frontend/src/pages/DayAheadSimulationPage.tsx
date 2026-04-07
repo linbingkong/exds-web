@@ -71,12 +71,61 @@ type PanelKey = 0 | 1 | 2 | 3;
 
 const EDIT_PERMISSION = 'module:strategy_dayahead:edit';
 const EMPTY_PARAM: TradeSourceParam = { param_key: '', param_name: '', param_value: '', unit: '', description: '' };
+const PARAM_DOC_EXPLANATIONS: Record<string, { param_name: string; unit: string; description: string }> = {
+    max_bid_mwh_per_period: { param_name: '单时段申报上限', unit: 'MWh', description: '单个 30 分钟时段的申报电量上限。最终 bid_mwh = bid_ratio × max_bid_mwh_per_period。' },
+    daily_budget_ratio_base: { param_name: '全天预算基础比例', unit: '-', description: '全天总预算的基础比例。S5 会先按这个比例估算全天可分配总电量，再结合风险分和市场容量继续压缩或收敛。' },
+    daily_budget_floor_ratio: { param_name: '全天预算下限比例', unit: '-', description: '全天预算下限。即使当天风险很高，预算压缩也不会低于这一保底比例。' },
+    daily_budget_ceiling_ratio: { param_name: '全天预算上限比例', unit: '-', description: '全天预算上限。即使信号很强，全天总报量也不能超过这一上限比例。' },
+    max_adjacent_jump: { param_name: '相邻时段最大跳变幅度', unit: '-', description: '相邻半小时时段的最大跳变幅度限制，用于抑制报量曲线过于尖锐，避免出现不合理的大起大落。' },
+    strong_ev_quantile: { param_name: '强信号分位点', unit: '-', description: '用于识别强信号时段的 expected_value 分位点。值越高，只有更靠前的强信号时段才能进入高优先级分配。' },
+    isolated_point_keep_quantile: { param_name: '孤立高分保留分位点', unit: '-', description: '用于保留孤立高分时段的阈值。值越高，只有非常强的孤立信号才会被保留下来，普通孤立点更容易被压缩或清零。' },
+    impact_cap_ratio: { param_name: '市场冲击约束比例', unit: '-', description: '市场冲击约束比例。某时段的申报电量不能超过 market_cleared_mwh_reference × impact_cap_ratio。' },
+    high_risk_floor_multiplier: { param_name: '高风险预算压缩系数', unit: '-', description: '当 abnormal_day_risk_score 超过高风险阈值时，用这个系数压缩全天预算。系数越小，风险日越保守。' },
+    high_risk_threshold: { param_name: '高风险阈值', unit: '-', description: '高风险日阈值。风险分达到或超过该值时，S5 会触发更严格的预算压缩和单时段限仓。' },
+    pre_sched_gap_penalty_threshold: { param_name: '预计划价差惩罚阈值', unit: '元/MWh', description: '预计划价格与自研价格预测之间的偏差阈值。如果二者差异过大，说明市场先验与模型判断冲突，S5 会对该时段额外降仓。' },
+    high_risk_max_ratio: { param_name: '高风险单时段上限比例', unit: '-', description: '高风险日单时段最高允许申报比例。即使其他信号很强，只要当天被判定为高风险，也不能超过这个档位。' },
+    model_path: { param_name: '模型文件路径', unit: '路径', description: 'AUTO_S5 默认加载的模型文件路径。日常自动预测、手工 bid-predict 在未显式指定模型路径时，默认使用这里的模型。' },
+};
+const PARAM_DOC_EXPLANATION_LIST = Object.entries(PARAM_DOC_EXPLANATIONS).map(([paramKey, meta]) => ({ paramKey, ...meta }));
 
 const formatProfitAmountWan = (value: number) => `${(value / 10000).toFixed(3)} 万元`;
 
 const formatProfitPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
 
 const formatProfitRatio = (value: number) => (value > 0 ? value.toFixed(2) : '--');
+
+const getMatchedParamDocMeta = (param: Pick<TradeSourceParam, 'param_key' | 'param_name'>) => {
+    const key = (param.param_key || '').trim();
+    const name = (param.param_name || '').trim();
+    return PARAM_DOC_EXPLANATION_LIST.find((item) => item.paramKey === key || item.param_name === name) || null;
+};
+
+const getInferredParamDescription = (param: TradeSourceParam) => {
+    if (param.description?.trim()) return param.description.trim();
+    return getMatchedParamDocMeta(param)?.description || '';
+};
+
+const normalizeParamForSave = (param: TradeSourceParam): TradeSourceParam => {
+    const paramKey = param.param_key.trim();
+    const paramName = param.param_name.trim();
+    const matched = getMatchedParamDocMeta(param);
+    return {
+        ...param,
+        param_key: paramKey || paramName,
+        param_name: paramName || matched?.param_name || paramKey,
+        unit: param.unit.trim() || matched?.unit || '',
+        description: param.description.trim() || matched?.description || '',
+    };
+};
+
+const sortTradeSources = (list: TradeSourceListItem[]) => [...list].sort((left, right) => {
+    const leftActive = left.trade_source_status === '启用' ? 1 : 0;
+    const rightActive = right.trade_source_status === '启用' ? 1 : 0;
+    if (leftActive !== rightActive) {
+        return rightActive - leftActive;
+    }
+    return left.trade_source_name.localeCompare(right.trade_source_name, 'zh-CN');
+});
 
 export const DayAheadSimulationPage: React.FC = () => {
     const theme = useTheme();
@@ -133,7 +182,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     useEffect(() => {
         const load = async () => {
             try {
-                const list = await dayAheadBidApi.getTradeSources();
+                const list = sortTradeSources(await dayAheadBidApi.getTradeSources());
                 setTradeSources(list);
                 setSelectedTradeSourceId((prev) => prev || list[0]?.trade_source_id || '');
             } catch (error) {
@@ -470,7 +519,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     }, [dailyReview]);
 
     const refreshTradeSources = async () => {
-        const list = await dayAheadBidApi.getTradeSources();
+        const list = sortTradeSources(await dayAheadBidApi.getTradeSources());
         setTradeSources(list);
     };
 
@@ -509,7 +558,9 @@ export const DayAheadSimulationPage: React.FC = () => {
             strategy_code: editingDetail?.strategy_code || '',
             trade_source_status: editingDetail?.trade_source_status || '启用',
             description: editingDetail?.description || '',
-            params: (editingDetail?.params || [EMPTY_PARAM]).filter((item) => item.param_name || item.param_key),
+            params: (editingDetail?.params || [EMPTY_PARAM])
+                .map((item) => normalizeParamForSave(item))
+                .filter((item) => item.param_name || item.param_key),
         };
         if (editingDetail?.trade_source_id) {
             await dayAheadBidApi.updateTradeSource(editingDetail.trade_source_id, payload);
@@ -1777,27 +1828,56 @@ export const DayAheadSimulationPage: React.FC = () => {
                                     </Grid>
                                 </Grid>
                                 <Divider />
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>参数表格</Typography>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>参数表格</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            常见字段会按文档自动回填中文说明；参数键和参数名填写一个即可，保存时会自动互补。
+                                        </Typography>
+                                    </Box>
                                     <Button size="small" startIcon={<AddIcon />} onClick={() => updateEditingField('params', [...(editingDetail?.params || [EMPTY_PARAM]), { ...EMPTY_PARAM }])} disabled={!canEdit}>新增参数</Button>
                                 </Box>
                                 <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
                                     <Table size="small">
                                         <TableHead>
                                             <TableRow>
-                                                <TableCell>参数键</TableCell>
-                                                <TableCell>参数名</TableCell>
+                                                <TableCell sx={{ minWidth: 240 }}>参数键</TableCell>
                                                 <TableCell>参数值</TableCell>
-                                                <TableCell>单位</TableCell>
+                                                <TableCell sx={{ minWidth: 320 }}>中文说明</TableCell>
                                             </TableRow>
                                         </TableHead>
                                         <TableBody>
                                             {(editingDetail?.params || [EMPTY_PARAM]).map((param, index) => (
                                                 <TableRow key={`${param.param_key}-${index}`}>
-                                                    <TableCell><TextField size="small" value={param.param_key} onChange={(event) => updateEditingParam(index, 'param_key', event.target.value)} disabled={!canEdit} /></TableCell>
-                                                    <TableCell><TextField size="small" value={param.param_name} onChange={(event) => updateEditingParam(index, 'param_name', event.target.value)} disabled={!canEdit} /></TableCell>
+                                                    <TableCell>
+                                                        <TextField
+                                                            size="small"
+                                                            fullWidth
+                                                            value={param.param_key || param.param_name}
+                                                            disabled
+                                                            slotProps={{
+                                                                input: {
+                                                                    readOnly: true,
+                                                                },
+                                                            }}
+                                                        />
+                                                    </TableCell>
                                                     <TableCell><TextField size="small" value={param.param_value} onChange={(event) => updateEditingParam(index, 'param_value', event.target.value)} disabled={!canEdit} /></TableCell>
-                                                    <TableCell><TextField size="small" value={param.unit} onChange={(event) => updateEditingParam(index, 'unit', event.target.value)} disabled={!canEdit} /></TableCell>
+                                                    <TableCell>
+                                                        <TextField
+                                                            size="small"
+                                                            fullWidth
+                                                            multiline
+                                                            minRows={2}
+                                                            value={param.description || getInferredParamDescription(param)}
+                                                            disabled
+                                                            slotProps={{
+                                                                input: {
+                                                                    readOnly: true,
+                                                                },
+                                                            }}
+                                                        />
+                                                    </TableCell>
                                                 </TableRow>
                                             ))}
                                         </TableBody>
