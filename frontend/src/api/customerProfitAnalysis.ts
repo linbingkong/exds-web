@@ -35,6 +35,7 @@ export interface ContributionGroup {
         percentage: number;
         contribution_value: number;
     };
+    customer_count?: number;
     total_profit: number;
     contribution_type: 'positive' | 'negative';
 }

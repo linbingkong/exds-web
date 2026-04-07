@@ -422,6 +422,7 @@ class CustomerProfitAnalysisService:
                 "percentage": round((others_contribution / total_profit * 100) if total_profit > 0 else 0.0, 2),
                 "contribution_value": others_contribution,
             },
+            "customer_count": len(contribution_rows),
             "total_profit": round(total_profit if positive else -total_profit, 2),
             "contribution_type": "positive" if positive else "negative",
         }

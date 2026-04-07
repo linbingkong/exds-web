@@ -31,10 +31,13 @@ class DashboardSnapshotService:
             snapshot_data = snapshot.get("data") or {}
             cached_settlement_month = (snapshot_data.get("settlement_kpi") or {}).get("month")
             current_settlement_month = self.dashboard_service.get_settlement_display_month()
-            if cached_settlement_month == current_settlement_month:
+            if cached_settlement_month == current_settlement_month and self._snapshot_schema_ready(snapshot_data):
                 return self._to_summary_response(snapshot)
 
-            logger.info("交易总览首页快照的售电收益月份已变化，立即刷新快照: %s -> %s", cached_settlement_month, current_settlement_month)
+            if cached_settlement_month != current_settlement_month:
+                logger.info("交易总览首页快照的售电收益月份已变化，立即刷新快照: %s -> %s", cached_settlement_month, current_settlement_month)
+            else:
+                logger.info("交易总览首页快照结构缺少客户贡献计数字段，立即刷新快照")
             result = self.refresh_snapshot(force=True)
             return result["summary"]
 
@@ -54,11 +57,6 @@ class DashboardSnapshotService:
             and snapshot.get("data")
             and snapshot.get("data_signature") == signature
         ):
-            self.db[self.COLLECTION_NAME].update_one(
-                {"_id": self.SNAPSHOT_ID},
-                {"$set": {"last_checked_at": now, "updated_at": now}},
-                upsert=True,
-            )
             return {
                 "status": "SKIPPED",
                 "summary": self._to_summary_response(snapshot),
@@ -88,8 +86,8 @@ class DashboardSnapshotService:
         month = self.dashboard_service.get_current_month()
         settlement_month = self.dashboard_service.get_settlement_display_month()
         now = datetime.now()
-        end_date = now
-        start_date = now - timedelta(days=29)
+        end_date = self._resolve_price_trend_end_date(now)
+        start_date = datetime(end_date.year, end_date.month, end_date.day) - timedelta(days=29)
         price_trend = self.contract_price_trend_service.get_price_trend(
             start_date=start_date,
             end_date=end_date,
@@ -107,6 +105,17 @@ class DashboardSnapshotService:
             "alerts": self.dashboard_service.get_alerts(8),
             "price_trend": self._normalize_value(price_trend.model_dump()),
         }
+
+    def _resolve_price_trend_end_date(self, now: datetime) -> datetime:
+        """首页趋势快照仅使用已完成自然日，避免当天滚动数据导致签名频繁变化。"""
+        end_of_today = datetime(now.year, now.month, now.day, 23, 59, 59)
+        return end_of_today - timedelta(days=1)
+
+    def _snapshot_schema_ready(self, snapshot_data: Dict[str, Any]) -> bool:
+        contribution = snapshot_data.get("customer_profit_contribution") or {}
+        positive = contribution.get("positive_contribution") or {}
+        negative = contribution.get("negative_contribution") or {}
+        return "customer_count" in positive and "customer_count" in negative
 
     def _to_summary_response(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
         data = snapshot.get("data") or {}

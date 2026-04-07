@@ -305,6 +305,12 @@ export const DashboardPage: React.FC = () => {
     }, [contributionMode, state.customerProfit]);
 
     const contributionPieData = useMemo(() => buildContributionPieData(contributionGroup), [contributionGroup]);
+    const customerContributionSummary = useMemo(() => {
+        return {
+            positiveCountText: `${state.customerProfit?.positive_contribution?.customer_count ?? '--'} 户`,
+            negativeCountText: `${state.customerProfit?.negative_contribution?.customer_count ?? '--'} 户`,
+        };
+    }, [state.customerProfit]);
 
     const tradeChartData = useMemo(
         () =>
@@ -752,7 +758,14 @@ export const DashboardPage: React.FC = () => {
                 </ToggleButtonGroup>
             }
         >
-            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', lg: 'row' }, gap: 1.5, height: { xs: 'auto', lg: '100%' } }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, height: { xs: 'auto', lg: '100%' } }}>
+                <Box sx={{ px: 0.5 }}>
+                    <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
+                        <InlineStat label="年度累计正收益客户" value={customerContributionSummary.positiveCountText} tone={TRADE_POSITIVE} />
+                        <InlineStat label="年度累计负收益客户" value={customerContributionSummary.negativeCountText} tone={TRADE_NEGATIVE} />
+                    </Box>
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', lg: 'row' }, gap: 1.5, flex: 1, minHeight: 0 }}>
                 <Box sx={{ flex: { xs: 'none', lg: '0 0 52%' }, minHeight: { xs: 220, lg: 0 }, height: { xs: 220, lg: 'auto' }, position: 'relative' }}>
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
@@ -808,6 +821,7 @@ export const DashboardPage: React.FC = () => {
                         </Box>
                     ))}
                 </Stack>
+                </Box>
             </Box>
         </DashboardPanel>
     );

@@ -72,8 +72,8 @@ def _get_pending_retail_dates(retail_service: RetailSettlementService) -> List[s
 
 
 async def event_driven_settlement_job() -> None:
-    """Event-driven settlement job."""
-    logger.info("????????????")
+    """事件驱动结算任务。"""
+    logger.info("开始执行事件驱动结算任务")
 
     settlement_service = SettlementService()
     retail_service = RetailSettlementService()
@@ -89,7 +89,7 @@ async def event_driven_settlement_job() -> None:
         platform_dates = settlement_service.get_pending_dates(SettlementVersion.PLATFORM_DAILY)
 
         for date_str in preliminary_dates:
-            logger.info("??????????: %s", date_str)
+            logger.info("开始检查预结算日期: %s", date_str)
             try:
                 result = await settlement_service.run_daily_settlement(
                     date_str=date_str,
@@ -111,10 +111,10 @@ async def event_driven_settlement_job() -> None:
                     error_entries.append({
                         "process": "PRELIMINARY",
                         "date": date_str,
-                        "message": result.get("message", "??????"),
+                        "message": result.get("message", "预结算执行失败"),
                     })
             except Exception as exc:
-                logger.error("Preliminary ?????? date=%s err=%s", date_str, exc, exc_info=True)
+                logger.error("预结算执行异常 date=%s err=%s", date_str, exc, exc_info=True)
                 error_entries.append({
                     "process": "PRELIMINARY",
                     "date": date_str,
@@ -122,7 +122,7 @@ async def event_driven_settlement_job() -> None:
                 })
 
         for date_str in platform_dates:
-            logger.info("???????????: %s", date_str)
+            logger.info("开始检查平台日结日期: %s", date_str)
             try:
                 result = await settlement_service.run_daily_settlement(
                     date_str=date_str,
@@ -144,10 +144,10 @@ async def event_driven_settlement_job() -> None:
                     error_entries.append({
                         "process": "PLATFORM_DAILY",
                         "date": date_str,
-                        "message": result.get("message", "??????"),
+                        "message": result.get("message", "平台日结执行失败"),
                     })
             except Exception as exc:
-                logger.error("Platform daily ?????? date=%s err=%s", date_str, exc, exc_info=True)
+                logger.error("平台日结执行异常 date=%s err=%s", date_str, exc, exc_info=True)
                 error_entries.append({
                     "process": "PLATFORM_DAILY",
                     "date": date_str,
@@ -156,7 +156,7 @@ async def event_driven_settlement_job() -> None:
 
         retail_dates = _get_pending_retail_dates(retail_service)
         for date_str in retail_dates:
-            logger.info("??????????: %s", date_str)
+            logger.info("开始检查零售日结日期: %s", date_str)
             try:
                 wholesale_doc = DATABASE["settlement_daily"].find_one(
                     {"operating_date": date_str, "version": SettlementVersion.PLATFORM_DAILY.value},
@@ -173,14 +173,14 @@ async def event_driven_settlement_job() -> None:
                         "date": date_str,
                         "version": "RETAIL_DAILY",
                         "missing_items": ["wholesale_settlement_daily"],
-                        "message": "????????",
+                        "message": "缺少批发侧日结结果",
                     })
                     continue
 
                 retail_result = retail_service.calculate_all_customers_daily(date_str)
                 new_retail += retail_result.get("new_processed", 0)
             except Exception as exc:
-                logger.error("Retail daily ?????? date=%s err=%s", date_str, exc, exc_info=True)
+                logger.error("零售日结执行异常 date=%s err=%s", date_str, exc, exc_info=True)
                 error_entries.append({
                     "process": "RETAIL_DAILY",
                     "date": date_str,
@@ -203,8 +203,8 @@ async def event_driven_settlement_job() -> None:
             status = "SKIPPED"
 
         summary = (
-            f"????: ?????={new_preliminary}???????={new_platform_daily}, "
-            f"?????={new_retail}, ??={blocked_count}, ??={error_count}"
+            f"结算刷新完成: 预结算={new_preliminary}, 平台日结={new_platform_daily}, "
+            f"零售日结={new_retail}, 阻塞={blocked_count}, 异常={error_count}"
         )
         details = {
             "new_preliminary": new_preliminary,
@@ -222,7 +222,7 @@ async def event_driven_settlement_job() -> None:
                 task_id = await TaskLogger.log_task_start(
                     service_type="settlement_service",
                     task_type="event_driven_settlement",
-                    task_name="event_driven_settlement",
+                    task_name="事件驱动结算刷新",
                     trigger_type="schedule"
                 )
                 await TaskLogger.log_task_end(
@@ -232,23 +232,23 @@ async def event_driven_settlement_job() -> None:
                     details=details
                 )
             else:
-                logger.info("???????????????????")
+                logger.info("事件驱动结算结果与上一条一致，跳过写入任务日志")
         else:
-            logger.info("???????????????????")
+            logger.info("事件驱动结算无新增、无阻塞、无异常，跳过写入任务日志")
 
     except Exception as exc:
-        logger.error("??????????????: %s", exc, exc_info=True)
+        logger.error("事件驱动结算任务执行失败: %s", exc, exc_info=True)
         task_id = await TaskLogger.log_task_start(
             service_type="settlement_service",
             task_type="event_driven_settlement",
-            task_name="event_driven_settlement",
+            task_name="事件驱动结算刷新",
             trigger_type="schedule"
         )
         await TaskLogger.log_task_end(
             task_id,
             "FAILED",
-            summary="??????????????",
+            summary="事件驱动结算任务执行失败",
             error={"message": str(exc)}
         )
 
-    logger.info("??????????")
+    logger.info("事件驱动结算任务执行结束")
