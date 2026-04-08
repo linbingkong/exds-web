@@ -95,7 +95,7 @@ def get_retail_daily_settlement(
 def trigger_monthly_calc(
     req: MonthlyCalcRequest,
     background_tasks: BackgroundTasks,
-    _ctx = Depends(require_permission("module:settlement_daily_overview:edit")),
+    _ctx = Depends(require_permission("module:settlement_monthly_detail:edit")),
     _recalc_ctx = Depends(require_permission("settlement:recalc:execute")),
 ):
     try:

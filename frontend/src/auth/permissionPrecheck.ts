@@ -131,8 +131,13 @@ const MUTATION_PERMISSION_RULES: MutationPermissionRule[] = [
 
     {
         methods: ['post'],
-        pattern: /^\/api\/v1\/(settlement\/calculate|retail-settlement\/calculate|retail-settlement\/monthly-calc)$/,
+        pattern: /^\/api\/v1\/(settlement\/calculate|retail-settlement\/calculate)$/,
         allPermissions: [modulePermission('settlement_daily_overview', 'edit'), 'settlement:recalc:execute'],
+    },
+    {
+        methods: ['post'],
+        pattern: /^\/api\/v1\/retail-settlement\/monthly-calc$/,
+        allPermissions: [modulePermission('settlement_monthly_detail', 'edit'), 'settlement:recalc:execute'],
     },
 
     { methods: ['post'], pattern: /^\/api\/v1\/system\/alerts\/[^/]+\/resolve$/, allPermissions: [modulePermission('system_logs', 'edit')] },

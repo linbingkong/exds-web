@@ -459,7 +459,11 @@ const CustomerMobileCard: React.FC<{
     );
 };
 
-const EmptyState: React.FC<{ month: string; onExecute: () => void; disabled?: boolean }> = ({ month, onExecute, disabled = false }) => (
+const EmptyState: React.FC<{
+    month: string;
+    onImportWholesale: () => void;
+    importDisabled?: boolean;
+}> = ({ month, onImportWholesale, importDisabled = false }) => (
     <Paper
         variant="outlined"
         sx={{
@@ -483,17 +487,16 @@ const EmptyState: React.FC<{ month: string; onExecute: () => void; disabled?: bo
             未找到 {month} 的结算数据
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 450, mx: 'auto', mb: 2 }}>
-            该月份尚未执行月度零售结算，或相关的批发结算数据未导入。请先导入批发结算文件，然后执行零售结算任务。
+            该月份尚未导入批发结算数据。请先完成批发侧月度结算导入，随后再进入零售侧执行月度结算。
         </Typography>
         <Button
-            variant="contained"
+            variant="outlined"
             size="large"
-            startIcon={<CalculateIcon />}
-            onClick={onExecute}
-            disabled={disabled}
-            sx={{ borderRadius: 3, px: 4, py: 1.2, fontWeight: 700, boxShadow: 'none', textTransform: 'none' }}
+            onClick={onImportWholesale}
+            disabled={importDisabled}
+            sx={{ borderRadius: 3, px: 4, py: 1.2, fontWeight: 700, textTransform: 'none' }}
         >
-            立即执行月度零售结算
+            导入批发结算文件
         </Button>
     </Paper>
 );
@@ -769,7 +772,10 @@ const MonthlySettlementAnalysisPage: React.FC<{ initialMonth?: string }> = ({ in
         return [...customers].sort(comparator);
     }, [customers, order, orderBy]);
 
-    const hasSettledData = customers.length > 0;
+    const hasWholesaleData = Boolean(wholesaleLedger?.has_data || wholesaleLedger);
+    const hasRetailData = customers.length > 0;
+    const hasAnyData = hasWholesaleData || hasRetailData;
+    const canExecuteRetailSettlement = canExecuteSettlement && hasWholesaleData;
 
     // 事件处理
     const handleShiftMonth = (months: number) => {
@@ -784,13 +790,14 @@ const MonthlySettlementAnalysisPage: React.FC<{ initialMonth?: string }> = ({ in
         const formData = new FormData();
         formData.append('file', file);
         setLoading(true);
+        setError(null);
         try {
             await apiClient.post('/api/v1/wholesale-monthly-settlement/import', formData, {
                 params: { overwrite: true },
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
             setSnackbarOpen(true);
-            fetchData(monthStr);
+            await fetchData(monthStr);
         } catch (err: any) {
             setError(err.response?.data?.detail || '导入失败');
         } finally {
@@ -834,11 +841,20 @@ const MonthlySettlementAnalysisPage: React.FC<{ initialMonth?: string }> = ({ in
         setJobInfo({ job_id: '', month: monthStr, status: 'pending', progress: 0, message: '正在启动月度结算任务...' });
         try {
             const res = await apiClient.post('/api/v1/retail-settlement/monthly-calc', { month: monthStr, force: true });
+            if (res.data?.code && res.data.code !== 200) {
+                const message = res.data?.message || '启动月度结算失败';
+                setJobInfo(prev => prev ? { ...prev, status: 'failed', message } : { job_id: '', month: monthStr, status: 'failed', progress: 0, message });
+                return;
+            }
             const jobId = res.data?.data?.job_id;
             if (jobId) pollProgress(jobId, monthStr);
-            else setJobInfo(prev => prev ? { ...prev, status: 'failed', message: '未获取到任务ID' } : { job_id: '', month: monthStr, status: 'failed', progress: 0, message: '未获取到任务ID' });
+            else {
+                const message = res.data?.message || '未获取到任务ID';
+                setJobInfo(prev => prev ? { ...prev, status: 'failed', message } : { job_id: '', month: monthStr, status: 'failed', progress: 0, message });
+            }
         } catch (err: any) {
-            setJobInfo(prev => prev ? { ...prev, status: 'failed', message: err.message } : { job_id: '', month: monthStr, status: 'failed', progress: 0, message: err.message });
+            const message = err.response?.data?.message || err.response?.data?.detail || err.message || '启动月度结算失败';
+            setJobInfo(prev => prev ? { ...prev, status: 'failed', message } : { job_id: '', month: monthStr, status: 'failed', progress: 0, message });
         }
     };
 
@@ -894,12 +910,16 @@ const MonthlySettlementAnalysisPage: React.FC<{ initialMonth?: string }> = ({ in
                 </Grid>
 
                 {/* 统一空状态提示 */}
-                {!loading && !hasSettledData && (
-                    <EmptyState month={monthStr} onExecute={handleExecuteRetailSettlement} disabled={!canExecuteSettlement} />
+                {!loading && !hasAnyData && (
+                    <EmptyState
+                        month={monthStr}
+                        onImportWholesale={() => fileInputRef.current?.click()}
+                        importDisabled={loading || !canEdit}
+                    />
                 )}
 
                 {/* 选项卡导航 */}
-                {hasSettledData && (
+                {hasAnyData && (
                     <>
                 <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
                     <Tabs value={tabValue} onChange={handleTabChange} aria-label="settlement analysis tabs">
@@ -933,11 +953,16 @@ const MonthlySettlementAnalysisPage: React.FC<{ initialMonth?: string }> = ({ in
                         jobInfo={jobInfo}
                         snackbarOpen={snackbarOpen}
                         onCloseSnackbar={() => setSnackbarOpen(false)}
-                        canExecuteSettlement={canExecuteSettlement}
+                        canExecuteSettlement={canExecuteRetailSettlement}
                     />
                 )}
                     </>
                 )}
+                <Snackbar open={snackbarOpen} autoHideDuration={3000} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+                    <Alert severity="success" variant="filled" sx={{ borderRadius: 2 }}>
+                        批发结算文件导入成功，数据已刷新
+                    </Alert>
+                </Snackbar>
             </Box >
         </LocalizationProvider >
     );

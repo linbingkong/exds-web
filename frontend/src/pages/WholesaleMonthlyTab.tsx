@@ -336,6 +336,16 @@ export const WholesaleMonthlyTab: React.FC<WholesaleMonthlyTabProps> = ({
     const waterfallRef = useRef<HTMLDivElement>(null);
     const attributionRef = useRef<HTMLDivElement>(null);
     const items = useMemo(() => data?.settlement_items || {}, [data]);
+    const currentMonth = data?.month || '';
+    const hasActualData = useMemo(() => {
+        if (!data) {
+            return false;
+        }
+        if (data.has_data === false) {
+            return false;
+        }
+        return Object.keys(data.settlement_items || {}).length > 0;
+    }, [data]);
 
     const waterfallData = useMemo(() => {
         if (Object.keys(items).length === 0) return [];
@@ -518,7 +528,7 @@ export const WholesaleMonthlyTab: React.FC<WholesaleMonthlyTabProps> = ({
         title: `批发侧盈亏归因分析 (${data?.month || ''})`,
     });
 
-    if (loading && !data) {
+    if (loading && !hasActualData) {
         return (
             <Box sx={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <CircularProgress />
@@ -526,11 +536,41 @@ export const WholesaleMonthlyTab: React.FC<WholesaleMonthlyTabProps> = ({
         );
     }
 
-    if (!data) {
+    if (!hasActualData) {
         return (
-            <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
-                <Typography color="text.secondary">请先导入月度批发结算数据。</Typography>
-            </Paper>
+            <Box sx={{ position: 'relative' }}>
+                <Paper
+                    variant="outlined"
+                    sx={{
+                        p: 2,
+                        display: 'flex',
+                        gap: 1,
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                    }}
+                    >
+                        <Box>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                批发侧月度结算
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                当前月份 {currentMonth}，可在此导入批发结算文件并查看结算明细与瀑布图。
+                            </Typography>
+                        </Box>
+                        <Button
+                            variant="outlined"
+                            onClick={onImportWholesale}
+                        disabled={loading || importDisabled}
+                        sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700 }}
+                    >
+                        导入批发结算文件
+                    </Button>
+                </Paper>
+                <Paper variant="outlined" sx={{ p: 4, mt: 2, textAlign: 'center' }}>
+                    <Typography color="text.secondary">当前月份暂无批发侧月度结算数据。</Typography>
+                </Paper>
+            </Box>
         );
     }
 
@@ -570,7 +610,7 @@ export const WholesaleMonthlyTab: React.FC<WholesaleMonthlyTabProps> = ({
                                 批发侧月度结算
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                                当前月份 {data.month}，可在此导入批发结算文件并查看结算明细与瀑布图。
+                                当前月份 {currentMonth}，可在此导入批发结算文件并查看结算明细与瀑布图。
                             </Typography>
                         </Box>
                         <Button

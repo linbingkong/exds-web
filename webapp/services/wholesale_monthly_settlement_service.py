@@ -525,10 +525,9 @@ class WholesaleMonthlySettlementService:
         if not doc:
             raise ValueError(f"月份 {month} 数据不存在")
 
-        # 优先使用持久化结果，支持存量数据在线计算
-        reconcile_results = doc.get("reconciliation_results")
-        if not reconcile_results:
-            reconcile_results = self._calculate_reconciliation_results(month, doc.get("settlement_items", {}))
+        # 对账结果依赖日清聚合，日清数据后续可能被重算，因此这里始终按最新数据实时计算，
+        # 避免导入时缓存的 reconciliation_results 变成过期值。
+        reconcile_results = self._calculate_reconciliation_results(month, doc.get("settlement_items", {}))
 
         items = doc.get("settlement_items", {})
         # 为了兼容性，仍计算 balancing_fee 用于前端特殊展示（如果需要）

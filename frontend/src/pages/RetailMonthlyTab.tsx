@@ -383,7 +383,7 @@ export const RetailMonthlyTab: React.FC<RetailMonthlyTabProps> = ({
                     disabled={loading || !canExecuteSettlement}
                     sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, boxShadow: 'none' }}
                 >
-                    测算所有客户
+                    结算所有客户
                 </Button>
             </Paper>
 
