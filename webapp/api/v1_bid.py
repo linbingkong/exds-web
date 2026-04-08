@@ -797,9 +797,7 @@ def _next_day_declare_status(trade_source_id: str) -> DeclareStatus:
     )
     if not result:
         return "未申报"
-    daily_bid = float(result.get("daily_bid_mwh") or 0)
-    bid_values = result.get("bid_mwh") or []
-    return "已申报" if daily_bid > 0 or any(float(value or 0) > 0 for value in bid_values) else "未申报"
+    return "已申报"
 
 
 def _get_trade_source_or_404(trade_source_id: str) -> Dict[str, Any]:
@@ -822,7 +820,7 @@ def _get_strategy_result_or_404(trade_source: Dict[str, Any], target_date: str, 
 
 def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any]) -> SimulationDetailModel:
     is_editable = trade_source.get("trade_type") == "manual" and trade_source.get("source_kind") != "real_trade"
-    next_status = "已申报" if float(result_doc.get("daily_bid_mwh") or 0) > 0 else "未申报"
+    next_status = "已申报"
     target_date = str(result_doc.get("trade_date_str") or _serialize_timestamp(result_doc.get("target_date")) or "")
     price_curve = _resolve_dayahead_forecast_curve(target_date, result_doc)
     bid_curve = _coerce_curve(result_doc.get("bid_mwh"))
