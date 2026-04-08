@@ -12,6 +12,8 @@ from dateutil.relativedelta import relativedelta
 
 logger = logging.getLogger(__name__)
 
+_YEARS_CACHE: dict[str, Any] = {"years": None, "expires_at": None}
+
 
 class ContractService:
     """
@@ -188,6 +190,19 @@ class ContractService:
         if filters.get("customer_name"):
             query["customer_name"] = {"$regex": filters["customer_name"], "$options": "i"}
 
+        customer_ids = [customer_id for customer_id in (filters.get("customer_ids") or []) if customer_id]
+        if customer_ids:
+            customer_id_query = {"customer_id": {"$in": customer_ids}}
+            if query.get("customer_name"):
+                query = {
+                    "$and": [
+                        {"$or": [customer_id_query, {"customer_name": query.pop("customer_name")}]},
+                        query,
+                    ]
+                }
+            else:
+                query.update(customer_id_query)
+
         if filters.get("year"):
             try:
                 year = int(filters["year"])
@@ -211,7 +226,7 @@ class ContractService:
         total_before_status = self.collection.count_documents(query)
 
         # 分页查询
-        skip = (page - 1) * page_size
+        skip = (page - 1) * page_size if page_size > 0 else 0
         # 排序处理
         direction = 1 if sort_order == "asc" else -1
         
@@ -229,14 +244,30 @@ class ContractService:
         # 使用中文校对规则进行排序
         collation = {"locale": "zh"}
         
-        if status_filter:
-            cursor = self.collection.find(query).collation(collation).sort(sort_field, direction)
+        if status_filter or page_size <= 0:
+            docs = list(self.collection.find(query).collation(collation).sort(sort_field, direction))
         else:
-            cursor = self.collection.find(query).collation(collation).sort(sort_field, direction).skip(skip).limit(page_size)
+            docs = list(self.collection.find(query).collation(collation).sort(sort_field, direction).skip(skip).limit(page_size))
+
+        package_object_ids = list({
+            ObjectId(str(doc.get("package_id")))
+            for doc in docs
+            if doc.get("package_id") and ObjectId.is_valid(str(doc.get("package_id")))
+        })
+        package_status_map = {}
+        if package_object_ids:
+            package_cursor = self.db.retail_packages.find(
+                {"_id": {"$in": package_object_ids}},
+                {"status": 1},
+            )
+            package_status_map = {
+                str(package["_id"]): package.get("status")
+                for package in package_cursor
+            }
 
         # 转换为列表项格式（计算虚拟状态）
         items = []
-        for doc in cursor:
+        for doc in docs:
             # 计算虚拟状态
             status = calculate_contract_status(
                 doc.get("purchase_start_month"),
@@ -248,14 +279,7 @@ class ContractService:
                 continue
 
             # 获取套餐状态
-            package_status = None
-            if doc.get("package_id"):
-                package = self.db.retail_packages.find_one(
-                    {"_id": ObjectId(doc.get("package_id"))},
-                    {"status": 1}
-                )
-                if package:
-                    package_status = package.get("status")
+            package_status = package_status_map.get(str(doc.get("package_id") or ""))
 
             item = ContractListItem(
                 id=str(doc["_id"]),
@@ -275,7 +299,7 @@ class ContractService:
         # 如果有状态筛选，进行分页
         if status_filter:
             total = len(items)
-            items = items[skip:skip + page_size]
+            items = items[skip:skip + page_size] if page_size > 0 else items
         else:
             total = total_before_status
 
@@ -490,10 +514,15 @@ class ContractService:
         """
         获取所有合同中涉及的年份（去重）
         """
+        now = datetime.now()
+        expires_at = _YEARS_CACHE.get("expires_at")
+        if _YEARS_CACHE.get("years") is not None and expires_at and expires_at > now:
+            return list(_YEARS_CACHE["years"])
+
         pipeline = [
             {"$project": {
-                "start_year": {"$substr": ["$purchase_start_month", 0, 4]},
-                "end_year": {"$substr": ["$purchase_end_month", 0, 4]}
+                "start_year": {"$year": "$purchase_start_month"},
+                "end_year": {"$year": "$purchase_end_month"}
             }},
             {"$group": {
                 "_id": None,
@@ -520,8 +549,11 @@ class ContractService:
                 
         # 确保当前年份总是存在
         years.add(datetime.now().year)
-        
-        return sorted(list(years), reverse=True)
+
+        sorted_years = sorted(list(years), reverse=True)
+        _YEARS_CACHE["years"] = sorted_years
+        _YEARS_CACHE["expires_at"] = now + relativedelta(minutes=10)
+        return sorted_years
 
     def _validate_same_year(self, start_date: datetime, end_date: datetime):
         """校验开始和结束日期必须在同一年"""

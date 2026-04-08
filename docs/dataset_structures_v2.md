@@ -15,6 +15,7 @@
 | `_id` | `ObjectId` | 客户唯一ID |
 | `user_name` | `String` | 客户全称 |
 | `short_name` | `String` | 客户简称 |
+| `needs_name_masking` | `Boolean \| Null` | 是否需要客户名称脱敏。`true` 表示演示角色默认显示脱敏名称；`false` 表示默认显示真实名称；历史数据兼容阶段允许为空，空值按规则回退判断。 |
 | `location` | `String` | 地理位置信息,关联`weather_location` 集合 `name` 字段 |
 | `source` | `String` | 客户来源（自营开发、居间代理A、居间代理B） |
 | `manager` | `String` | 客户经理 |
@@ -42,8 +43,60 @@
 - `_id_` (默认)
 - `user_name`
 - `short_name`
+- `location`
+- `needs_name_masking`
 - `tags.name`
-- `tags.expire`
+- `accounts.account_id`
+- `accounts.meters.meter_id`
+- `accounts.metering_points.mp_no`
+- `created_at`
+- `updated_at`
+
+---
+
+## 1.3. `customer_demo_aliases` - 客户演示脱敏别名
+
+该集合存储需要脱敏客户的稳定演示名称映射，是客户名称脱敏的唯一真源。
+
+- **数据来源**: `webapp/services/customer_name_masking_service.py`
+- **用途**:
+  - 为演示角色提供稳定的 `demo_name` / `demo_short_name`
+  - 支持按演示名称反查 `customer_id`
+  - 仅保留 `customer_archives.needs_name_masking = true` 的客户映射
+
+### 1.3.1. 字段说明
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `_id` | `String` | 主键，当前直接使用 `customer_id` |
+| `customer_id` | `String` | 关联客户ID（来自 `customer_archives._id`） |
+| `demo_name` | `String` | 演示用客户全称，要求全局唯一 |
+| `demo_short_name` | `String` | 演示用客户简称 |
+| `real_name` | `String \| Null` | 真实客户全称快照 |
+| `real_short_name` | `String \| Null` | 真实客户简称快照 |
+| `source_hash` | `String` | 基于 `customer_id + real_name` 生成的哈希摘要，用于辅助排查映射来源 |
+| `status` | `String` | 映射状态，当前实现主要使用 `active`，保留 `disabled` 扩展位 |
+| `created_at` | `DateTime` | 创建时间 |
+| `updated_at` | `DateTime` | 最后更新时间 |
+| `created_by` | `String` | 创建人，当前系统生成时固定为 `system` |
+| `updated_by` | `String` | 更新人，当前系统生成时固定为 `system` |
+
+### 1.3.2. 索引信息
+
+- `_id_`（默认）
+- `customer_id`（唯一索引）
+- `demo_name`（唯一索引）
+- `demo_short_name`
+- `status`
+- `status`, `customer_id`（复合索引）
+
+### 1.3.3. 维护规则
+
+- 只有需要脱敏的客户才应保留别名记录。
+- `customer_archives.needs_name_masking` 批量回填规则当前为：客户全称包含 `国网`、`江西科晨`、`江西省送变电`、`江西送变电`、`送变电` 时自动置为 `true`。
+- 可通过脚本 `webapp/scripts/backfill_customer_name_masking_flag.py` 回填客户脱敏标记。
+- 可通过脚本 `webapp/scripts/ensure_customer_demo_aliases.py` 为全部脱敏客户预生成别名。
+- 可通过脚本 `webapp/scripts/cleanup_customer_demo_aliases.py` 清理已不再需要的别名记录。
 
 ---
 

@@ -75,16 +75,25 @@ class CustomerLoadOverviewService:
 
     def _get_signed_customers(self, year: int, month: int) -> List[Dict]:
         """获取指定年月的签约客户列表"""
+        return self._get_signed_customers_by_ids(year, month, None)
+
+    def _get_signed_customers_by_ids(self, year: int, month: int, customer_ids: Optional[List[str]]) -> List[Dict]:
+        """获取指定年月的签约客户列表，可按 customer_id 预过滤"""
+        if customer_ids is not None and not customer_ids:
+            return []
+
         start_of_year = datetime(year, 1, 1)
         end_of_year = datetime(year, 12, 31, 23, 59, 59)
-        
+
+        match_query = {
+            "purchase_start_month": {"$lte": end_of_year},
+            "purchase_end_month": {"$gte": start_of_year}
+        }
+        if customer_ids is not None:
+            match_query["customer_id"] = {"$in": customer_ids}
+
         pipeline = [
-            {
-                "$match": {
-                    "purchase_start_month": {"$lte": end_of_year},
-                    "purchase_end_month": {"$gte": start_of_year}
-                }
-            },
+            {"$match": match_query},
             {
                 "$group": {
                     "_id": "$customer_id",
@@ -182,6 +191,7 @@ class CustomerLoadOverviewService:
         month: int, 
         view_mode: str,
         search: Optional[str] = None,
+        customer_ids: Optional[List[str]] = None,
         sort_field: str = "signed_quantity",
         sort_order: str = "desc",
         page: int = 1,
@@ -199,7 +209,7 @@ class CustomerLoadOverviewService:
             }
         """
         # 1. 获取签约客户列表 (Single Query)
-        signed_customers = self._get_signed_customers(year, month)
+        signed_customers = self._get_signed_customers_by_ids(year, month, customer_ids)
         if not signed_customers:
              # 空数据结构返回
              return self._empty_dashboard_response(page, page_size)

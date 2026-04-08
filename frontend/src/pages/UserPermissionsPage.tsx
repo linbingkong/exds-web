@@ -40,14 +40,7 @@ import {
 } from '../api/authManagement';
 
 const MODULE_PERMISSION_PATTERN = /^module:(.+):(view|edit)$/;
-const EXCEPTION_PERMISSION_CODES = [
-  'customer:profile:delete',
-  'customer:contract:delete',
-  'customer:package:delete',
-  'load:data:reaggregate',
-  'settlement:recalc:execute',
-  'system:auth:manage',
-];
+const VIEW_REAL_CUSTOMER_NAME_PERMISSION = 'data:customer_name:view_real';
 
 type RoleDraft = { code: string; name: string; description: string };
 type UserDraft = {
@@ -152,11 +145,15 @@ const UserPermissionsPage: React.FC = () => {
   }, [permissions, modules]);
 
   const extraPerms = useMemo(() => {
-    const byCode = new Map(permissions.map((p) => [p.code, p]));
-    return EXCEPTION_PERMISSION_CODES
-      .map((code) => byCode.get(code))
-      .filter((p): p is AuthPermission => Boolean(p));
+    return permissions
+      .filter((p) => p.is_exception && p.code !== VIEW_REAL_CUSTOMER_NAME_PERMISSION)
+      .sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'zh-CN'));
   }, [permissions]);
+
+  const realCustomerNamePermission = useMemo(
+    () => permissions.find((p) => p.code === VIEW_REAL_CUSTOMER_NAME_PERMISSION) || null,
+    [permissions]
+  );
 
   const loadUsers = useCallback(async () => {
     if (!canManage) {
@@ -669,7 +666,30 @@ const UserPermissionsPage: React.FC = () => {
                   </Table>
                 </Box>
                 <Divider sx={{ my: 1 }} />
-                <Typography variant="body2" fontWeight={600}>例外权限</Typography>
+                <Typography variant="body2" fontWeight={600}>客户名称查看控制</Typography>
+                <Paper variant="outlined" sx={{ mt: 0.5, p: 1.5 }}>
+                  <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="space-between">
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2">
+                        查看真实客户名称
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        打开后该角色可直接查看真实客户名称；关闭后按演示脱敏规则显示。
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {realCustomerNamePermission?.code || VIEW_REAL_CUSTOMER_NAME_PERMISSION}
+                      </Typography>
+                    </Box>
+                    <Switch
+                      size="small"
+                      disabled={!canManage || !realCustomerNamePermission}
+                      checked={rolePermDraft.includes(VIEW_REAL_CUSTOMER_NAME_PERMISSION)}
+                      onChange={(e) => onToggleExtraPerm(VIEW_REAL_CUSTOMER_NAME_PERMISSION, e.target.checked)}
+                    />
+                  </Stack>
+                </Paper>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="body2" fontWeight={600}>其他例外权限</Typography>
                 <Stack spacing={0.5} sx={{ maxHeight: 160, overflowY: 'auto', mt: 0.5 }}>
                   {extraPerms.map((p) => (
                     <Stack key={p.code} direction="row" spacing={1} alignItems="center">
@@ -677,6 +697,9 @@ const UserPermissionsPage: React.FC = () => {
                       <Box><Typography variant="caption">{p.name || p.code}</Typography><Typography variant="caption" color="text.secondary" display="block">{p.code}</Typography></Box>
                     </Stack>
                   ))}
+                  {extraPerms.length === 0 && (
+                    <Typography variant="caption" color="text.secondary">暂无其他例外权限</Typography>
+                  )}
                 </Stack>
               </>
             )}

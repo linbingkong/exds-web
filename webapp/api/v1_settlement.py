@@ -7,7 +7,8 @@ from fastapi.responses import StreamingResponse
 from webapp.services.settlement_service import SettlementService
 from webapp.services.export_service import ExportService
 from webapp.models.settlement import SettlementDaily, SettlementVersion
-from webapp.api.dependencies.authz import require_permission
+from webapp.api.dependencies.authz import require_permission, CurrentUserContext
+from webapp.api.masking import mask_response_for_user
 
 router = APIRouter(prefix="/settlement", tags=["Settlement"])
 
@@ -83,7 +84,8 @@ async def get_daily_settlement(
     start_date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$"),
     end_date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$"),
     version: Optional[SettlementVersion] = None,
-    include_details: bool = False
+    include_details: bool = False,
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_daily_overview:view")),
 ):
     """
     获取指定日期范围的日结算数据
@@ -133,7 +135,7 @@ async def get_daily_settlement(
                     d = r.dict()
             data_list.append(d)
 
-        return ResponseModel(code=200, data=data_list)
+        return ResponseModel(code=200, data=mask_response_for_user(data_list, ctx))
 
     except Exception as e:
         return ResponseModel(code=500, message=str(e), data=[])
@@ -143,6 +145,7 @@ async def get_daily_settlement(
 async def get_settlement_overview(
     month: str = Query(..., regex=r"^\d{4}-\d{2}$", description="月份，格式 YYYY-MM"),
     version: SettlementVersion = Query(SettlementVersion.PRELIMINARY, description="结算版本"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_daily_overview:view")),
 ):
     """
     预结算总览：汇总指定月份的批发侧成本、零售侧收入，计算毛利和均价。
@@ -269,12 +272,12 @@ async def get_settlement_overview(
             "profit_margin": profit_margin,
         }
 
-        return ResponseModel(code=200, data={
+        return ResponseModel(code=200, data=mask_response_for_user({
             "month": month,
             "version": version.value,
             "summary": summary,
             "daily_details": daily_details,
-        })
+        }, ctx))
 
     except Exception as e:
         import traceback
@@ -286,6 +289,7 @@ async def get_settlement_detail(
     date: str = Query(..., regex=r"^\d{4}-\d{2}-\d{2}$", description="结算日期 YYYY-MM-DD"),
     version: SettlementVersion = Query(SettlementVersion.PRELIMINARY, description="结算版本"),
     settlement_type: str = Query("daily", description="结算类型：daily 或 monthly"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_daily_detail:view")),
 ):
     """
     获取指定日期的结算详情（包含批发侧和零售侧列表）
@@ -295,7 +299,7 @@ async def get_settlement_detail(
         if not data:
             return ResponseModel(code=404, message="No settlement data found for this date/version", data=None)
         
-        return ResponseModel(code=200, data=data)
+        return ResponseModel(code=200, data=mask_response_for_user(data, ctx))
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -307,6 +311,7 @@ async def get_settlement_customer_detail(
     version: SettlementVersion = Query(SettlementVersion.PRELIMINARY, description="结算版本"),
     customer_id: str = Query(..., description="客户ID"),
     settlement_type: str = Query("daily", description="结算类型：daily 或 monthly"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_daily_detail:view")),
 ):
     """
     获取单个客户在指定日期的零售详情数据
@@ -321,7 +326,7 @@ async def get_settlement_customer_detail(
         if not data:
             return ResponseModel(code=404, message="No retail settlement data found for this customer/date", data=None)
         
-        return ResponseModel(code=200, data=data)
+        return ResponseModel(code=200, data=mask_response_for_user(data, ctx))
     except Exception as e:
         return ResponseModel(code=500, message=str(e), data=None)
 

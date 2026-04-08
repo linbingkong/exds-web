@@ -18,7 +18,9 @@ from webapp.services.load_query_service import LoadQueryService
 
 # --- Security Dependency ---
 from webapp.tools.security import get_current_active_user
-from webapp.api.dependencies.authz import require_permission
+from webapp.api.dependencies.authz import require_permission, CurrentUserContext
+from webapp.api.masking import mask_response_for_user, paginate_items
+from webapp.services.customer_name_masking_service import customer_name_masking_service
 
 router = APIRouter(prefix="/load-characteristics", tags=["Load Characteristics"])
 
@@ -98,7 +100,9 @@ async def analyze_batch_manual(
 
 
 @router.get("/overview", response_model=CharacteristicsOverview)
-async def get_overview():
+async def get_overview(
+    ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
+):
     """获取特征分析总览"""
     db = DATABASE
     
@@ -208,7 +212,7 @@ async def get_overview():
             time=a.get("created_at", datetime.now()).strftime("%Y-%m-%d %H:%M")
         ))
 
-    return CharacteristicsOverview(
+    result = CharacteristicsOverview(
         kpi=OverviewKpi(
             coverage_rate=round(coverage_rate, 2),
             coverage_count=char_cust,
@@ -226,10 +230,13 @@ async def get_overview():
         ),
         anomalies=anom_list
     )
+    return mask_response_for_user(result.model_dump(), ctx)
 
 
 @router.get("/overview/distribution", response_model=EnhancedTagDistribution)
-async def get_tag_distribution():
+async def get_tag_distribution(
+    _ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
+):
     """获取完整的标签分布 (按类别)"""
     db = DATABASE
     
@@ -266,7 +273,10 @@ async def get_tag_distribution():
 
 
 @router.get("/overview/tag-changes", response_model=TagChangesResponse)
-async def get_tag_changes(date: Optional[str] = None):
+async def get_tag_changes(
+    date: Optional[str] = None,
+    ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
+):
     """获取标签变化 (对比昨日今日)"""
     db = DATABASE
     
@@ -315,16 +325,19 @@ async def get_tag_changes(date: Optional[str] = None):
             total_added += len(added)
             total_removed += len(removed)
     
-    return TagChangesResponse(
+    result = TagChangesResponse(
         date=date,
         total_added=total_added,
         total_removed=total_removed,
         changes=changes
     )
+    return mask_response_for_user(result.model_dump(), ctx)
 
 
 @router.get("/overview/scatter-data", response_model=ScatterDataResponse)
-async def get_scatter_data():
+async def get_scatter_data(
+    ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
+):
     """获取散点图数据 (规模-稳定性)"""
     db = DATABASE
     
@@ -362,7 +375,7 @@ async def get_scatter_data():
             tags=tag_names[:3]  # 最多显示3个
         ))
     
-    return ScatterDataResponse(items=items)
+    return mask_response_for_user(ScatterDataResponse(items=items).model_dump(), ctx)
 
 
 @router.get("/customers", response_model=CustomerCharacteristicListResponse)
@@ -374,13 +387,18 @@ async def list_customers(
     quality: Optional[str] = None,
     has_anomaly: Optional[bool] = None,
     sort_by: str = "avg_daily_load",
-    order: str = "desc"
+    order: str = "desc",
+    ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
 ):
     """获取客户特征列表 (关联查询Tags)"""
     db = DATABASE
     query = {}
-    if search:
+    use_masked_customer_search = bool(search and not ctx.can_view_real_customer_name)
+    if search and not use_masked_customer_search:
         query["customer_name"] = {"$regex": search, "$options": "i"}
+    elif use_masked_customer_search:
+        matched_customer_ids = customer_name_masking_service.search_customer_ids_by_keyword(search or "")
+        query["customer_id"] = {"$in": matched_customer_ids or ["__no_match__"]}
     if quality:
         query["quality_rating"] = quality
     if has_anomaly is not None:
@@ -408,10 +426,13 @@ async def list_customers(
     sort_field = sort_mapping.get(sort_by, "long_term.avg_daily_load")
     sort_dir = -1 if order == "desc" else 1
 
+    effective_page_size = page_size
     skip = (page - 1) * page_size
     
     total = db['customer_characteristics'].count_documents(query)
-    cursor = db['customer_characteristics'].find(query).sort(sort_field, sort_dir).skip(skip).limit(page_size)
+    cursor = db['customer_characteristics'].find(query).sort(sort_field, sort_dir)
+    if effective_page_size > 0:
+        cursor = cursor.skip(skip).limit(effective_page_size)
     
     # 获取每一条记录，并补全 tags
     items = []
@@ -442,16 +463,20 @@ async def list_customers(
         doc["tags"] = model_tags
         items.append(CustomerCharacteristics(**doc))
 
-    return CustomerCharacteristicListResponse(
+    result = CustomerCharacteristicListResponse(
         total=total,
         page=page,
         page_size=page_size,
         items=items
     )
+    return mask_response_for_user(result.model_dump(), ctx)
 
 
 @router.get("/customer/{customer_id}", response_model=CustomerCharacteristics)
-async def get_customer_detail(customer_id: str):
+async def get_customer_detail(
+    customer_id: str,
+    ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
+):
     """获取单个客户特征详情"""
     doc = DATABASE['customer_characteristics'].find_one({"customer_id": customer_id})
     if not doc:
@@ -499,11 +524,16 @@ async def get_customer_detail(customer_id: str):
     if cust_arch and "user_name" in cust_arch:
         doc["customer_name"] = cust_arch["user_name"]
         
-    return CustomerCharacteristics(**doc)
+    return mask_response_for_user(CustomerCharacteristics(**doc).model_dump(), ctx)
 
 
 @router.get("/customer/{customer_id}/history", response_model=AnalysisHistoryResponse)
-async def get_customer_history(customer_id: str, limit: int = 30, month: Optional[str] = None):
+async def get_customer_history(
+    customer_id: str,
+    limit: int = 30,
+    month: Optional[str] = None,
+    _ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
+):
     """获取客户分析历史"""
     db = DATABASE
     
@@ -533,7 +563,11 @@ async def get_customer_history(customer_id: str, limit: int = 30, month: Optiona
 
 
 @router.get("/customer/{customer_id}/alerts", response_model=AnomalyAlertListResponse)
-async def get_customer_alerts(customer_id: str, limit: int = 50):
+async def get_customer_alerts(
+    customer_id: str,
+    limit: int = 50,
+    ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
+):
     """获取客户异动告警历史"""
     db = DATABASE
     
@@ -559,7 +593,7 @@ async def get_customer_alerts(customer_id: str, limit: int = 50):
             notes=a.get("notes")
         ))
     
-    return AnomalyAlertListResponse(total=len(items), items=items)
+    return mask_response_for_user(AnomalyAlertListResponse(total=len(items), items=items).model_dump(), ctx)
 
 
 @router.post("/alerts/{alert_id}/acknowledge")
@@ -611,7 +645,8 @@ from webapp.models.load_models import DailyTotal, MonthlyTotal
 async def get_customer_daily_trend(
     customer_id: str,
     start_date: str = Query(..., description="YYYY-MM-DD"),
-    end_date: str = Query(..., description="YYYY-MM-DD")
+    end_date: str = Query(..., description="YYYY-MM-DD"),
+    _ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
 ):
     """Get daily energy usage for long-term trend analysis"""
     data = LoadQueryService.get_daily_totals(customer_id, start_date, end_date)
@@ -622,7 +657,8 @@ async def get_customer_daily_trend(
 async def get_customer_monthly_energy(
     customer_id: str,
     start_month: str = Query(..., description="YYYY-MM"),
-    end_month: str = Query(..., description="YYYY-MM")
+    end_month: str = Query(..., description="YYYY-MM"),
+    _ctx: CurrentUserContext = Depends(require_permission("module:analysis_load_characteristics:view")),
 ):
     """Get monthly energy usage for long-term analysis"""
     data = LoadQueryService.get_monthly_totals(customer_id, start_month, end_month)

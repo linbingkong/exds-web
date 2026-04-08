@@ -1,5 +1,7 @@
 import apiClient from './client';
 
+let contractYearsCache: { data: number[]; expiresAt: number } | null = null;
+
 // 零售合同管理API接口定义
 // 基于零售合同管理模块设计方案
 
@@ -121,7 +123,17 @@ export const getContracts = (params?: ContractListParams) => {
  * 获取合同年份列表
  */
 export const getContractYears = () => {
-  return apiClient.get<number[]>('/api/v1/retail-contracts/years');
+  if (contractYearsCache && contractYearsCache.expiresAt > Date.now()) {
+    return Promise.resolve({ data: contractYearsCache.data } as { data: number[] });
+  }
+
+  return apiClient.get<number[]>('/api/v1/retail-contracts/years').then((response) => {
+    contractYearsCache = {
+      data: response.data,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    };
+    return response;
+  });
 };
 
 /**

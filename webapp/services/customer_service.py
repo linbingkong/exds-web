@@ -34,6 +34,7 @@ class CustomerService:
                 ([('user_name', 1)], {'name': 'idx_user_name'}),
                 ([('short_name', 1)], {'name': 'idx_short_name'}),
                 ([('location', 1)], {'name': 'idx_location'}),
+                ([('needs_name_masking', 1)], {'name': 'idx_needs_name_masking'}),
 
                 # 2. 标签查询索引
                 ([('tags.name', 1)], {'name': 'idx_tags_name'}),
@@ -57,6 +58,11 @@ class CustomerService:
         except Exception as exc:  # pragma: no cover - best effort
             # 索引创建失败不应该阻止服务启动，记录错误即可
             logger.warning("创建客户索引时出错: %s", exc)
+
+    @staticmethod
+    def _infer_needs_name_masking(customer_name: Optional[str]) -> bool:
+        normalized_name = str(customer_name or "").strip()
+        return any(keyword in normalized_name for keyword in ("国网", "江西科晨", "江西省送变电", "江西送变电", "送变电"))
 
     def create(self, customer_data: Dict[str, Any], operator: str) -> Dict[str, Any]:
         """
@@ -95,6 +101,8 @@ class CustomerService:
         customer = Customer(**customer_data)
         customer.created_by = operator
         customer.updated_by = operator
+        if customer.needs_name_masking is None:
+            customer.needs_name_masking = self._infer_needs_name_masking(customer.user_name)
 
         # 准备插入文档
         doc_to_insert = customer.model_dump(by_alias=True)
@@ -148,14 +156,30 @@ class CustomerService:
         # 构建查询条件 (v2 结构，不再有 status 字段)
         query = {}
 
+        keyword_conditions = []
+
         # 关键词搜索 (客户名称或户号)
         if filters.get("keyword"):
             keyword = filters["keyword"]
-            query["$or"] = [
-                {"user_name": {"$regex": keyword, "$options": "i"}},
-                {"short_name": {"$regex": keyword, "$options": "i"}},
-                {"accounts.account_id": {"$regex": keyword, "$options": "i"}}
-            ]
+            if filters.get("include_name_search", True):
+                keyword_conditions.extend([
+                    {"user_name": {"$regex": keyword, "$options": "i"}},
+                    {"short_name": {"$regex": keyword, "$options": "i"}},
+                ])
+            if filters.get("include_account_search", True):
+                keyword_conditions.append({"accounts.account_id": {"$regex": keyword, "$options": "i"}})
+
+        matched_customer_ids = filters.get("customer_ids") or []
+        valid_customer_object_ids = [
+            ObjectId(customer_id)
+            for customer_id in matched_customer_ids
+            if isinstance(customer_id, str) and ObjectId.is_valid(customer_id)
+        ]
+        if valid_customer_object_ids:
+            keyword_conditions.append({"_id": {"$in": valid_customer_object_ids}})
+
+        if keyword_conditions:
+            query["$or"] = keyword_conditions
 
         # 标签筛选 (tags 参数可能是逗号分隔的字符串或列表)
         tags_filter = filters.get("tags")
@@ -236,10 +260,11 @@ class CustomerService:
 
         # 添加排序阶段
         # 默认按本年度签约电量大小由大到小排序
-        skip = (page - 1) * page_size
         pipeline.append({"$sort": {"current_year_contract_amount": -1, "created_at": -1}})
-        pipeline.append({"$skip": skip})
-        pipeline.append({"$limit": page_size})
+        if page_size > 0:
+            skip = (page - 1) * page_size
+            pipeline.append({"$skip": skip})
+            pipeline.append({"$limit": page_size})
 
         # 执行聚合查询
         cursor = self.collection.aggregate(pipeline, collation=collation)
@@ -264,6 +289,7 @@ class CustomerService:
                 id=str(doc["_id"]),
                 user_name=doc.get("user_name", ""),
                 short_name=doc.get("short_name"),
+                needs_name_masking=doc.get("needs_name_masking", self._infer_needs_name_masking(doc.get("user_name"))),
                 location=doc.get("location"),
                 tags=tags_data,
                 account_count=account_count,
@@ -341,6 +367,8 @@ class CustomerService:
 
         # 更新数据
         update_data = customer_data.copy()
+        if "needs_name_masking" not in update_data and "user_name" in update_data:
+            update_data["needs_name_masking"] = self._infer_needs_name_masking(update_data.get("user_name"))
         update_data["updated_at"] = datetime.now()
         update_data["updated_by"] = operator
 
@@ -1192,7 +1220,17 @@ class CustomerService:
                 if updated:
                     self.collection.update_one(
                         {"_id": customer["_id"]},
-                        {"$set": {"accounts": accounts, "updated_at": datetime.now(), "updated_by": operator}}
+                        {
+                            "$set": {
+                                "accounts": accounts,
+                                "needs_name_masking": customer.get(
+                                    "needs_name_masking",
+                                    self._infer_needs_name_masking(customer.get("user_name")),
+                                ),
+                                "updated_at": datetime.now(),
+                                "updated_by": operator,
+                            }
+                        }
                     )
                     updated_count += 1
                 continue
@@ -1226,7 +1264,17 @@ class CustomerService:
                 
                 self.collection.update_one(
                     {"_id": customer["_id"]},
-                    {"$set": {"accounts": accounts, "updated_at": datetime.now(), "updated_by": operator}}
+                    {
+                        "$set": {
+                            "accounts": accounts,
+                            "needs_name_masking": customer.get(
+                                "needs_name_masking",
+                                self._infer_needs_name_masking(customer.get("user_name")),
+                            ),
+                            "updated_at": datetime.now(),
+                            "updated_by": operator,
+                        }
+                    }
                 )
                 updated_count += 1
                 continue
@@ -1252,6 +1300,10 @@ class CustomerService:
             doc["updated_at"] = datetime.now()
             doc["created_by"] = operator
             doc["updated_by"] = operator
+            doc["needs_name_masking"] = doc.get(
+                "needs_name_masking",
+                self._infer_needs_name_masking(doc.get("user_name")),
+            )
             # 确保 tags 字段存在
             if "tags" not in doc:
                 doc["tags"] = []
@@ -1369,5 +1421,8 @@ class CustomerService:
                 result[key] = value.isoformat()
             else:
                 result[key] = value
+
+        if "needs_name_masking" not in result:
+            result["needs_name_masking"] = self._infer_needs_name_masking(doc.get("user_name"))
 
         return result

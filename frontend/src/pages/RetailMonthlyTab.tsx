@@ -49,6 +49,7 @@ import { useChartFullscreen } from '../hooks/useChartFullscreen';
 
 interface MonthlyCustomer {
     _id: string;
+    customer_id?: string;
     customer_name: string;
     total_energy_mwh: number;
     retail_total_fee: number;
@@ -98,7 +99,7 @@ interface RetailMonthlyTabProps {
     customers: MonthlyCustomer[];
     chartData: RetailChartData;
     loading: boolean;
-    handleViewDetail: (customerName: string) => void;
+    handleViewDetail: (customerId: string, customerName: string) => void;
     onExecuteRetailSettlement: () => void;
     onStartSettlement: () => void;
     progressOpen: boolean;
@@ -150,7 +151,7 @@ const getPricingModelName = (model?: string) => {
 const CustomerMobileCard: React.FC<{
     customer: MonthlyCustomer;
     index: number;
-    onClick: (name: string) => void;
+    onClick: (customerId: string, customerName: string) => void;
 }> = ({ customer, index, onClick }) => {
     const theme = useTheme();
 
@@ -180,7 +181,7 @@ const CustomerMobileCard: React.FC<{
                     variant="text"
                     color="primary"
                     endIcon={<ArrowForwardIosIcon sx={{ fontSize: '10px !important' }} />}
-                    onClick={() => onClick(customer.customer_name)}
+                    onClick={() => onClick(customer.customer_id || customer._id, customer.customer_name)}
                     sx={{ p: 0, minWidth: 'auto', fontWeight: 800, fontSize: '0.75rem' }}
                 >
                     查看明细
@@ -634,7 +635,7 @@ export const RetailMonthlyTab: React.FC<RetailMonthlyTabProps> = ({
                                                             size="small"
                                                             color="primary"
                                                             endIcon={<ArrowForwardIosIcon sx={{ fontSize: '12px !important' }} />}
-                                                            onClick={() => handleViewDetail(customer.customer_name)}
+                                                            onClick={() => handleViewDetail(customer.customer_id || customer._id, customer.customer_name)}
                                                             sx={{ minWidth: 'auto', fontWeight: 700, whiteSpace: 'nowrap' }}
                                                         >
                                                             查看明细

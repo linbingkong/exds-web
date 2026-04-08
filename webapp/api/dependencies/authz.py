@@ -19,6 +19,7 @@ from webapp.models.auth import CurrentUserContext
 logger = logging.getLogger(__name__)
 
 SUPER_ADMIN_ROLE = "super_admin"
+VIEW_REAL_CUSTOMER_NAME_PERMISSION = "data:customer_name:view_real"
 
 
 def _build_user_context(user: User) -> CurrentUserContext:
@@ -44,6 +45,8 @@ def _build_user_context(user: User) -> CurrentUserContext:
                     if perm not in permission_codes:
                         permission_codes.append(perm)
 
+    can_view_real_customer_name = is_super_admin or VIEW_REAL_CUSTOMER_NAME_PERMISSION in permission_codes
+
     return CurrentUserContext(
         username=user.username,
         display_name=user.display_name,
@@ -51,6 +54,7 @@ def _build_user_context(user: User) -> CurrentUserContext:
         role_codes=role_codes,
         permission_codes=permission_codes,
         is_super_admin=is_super_admin,
+        can_view_real_customer_name=can_view_real_customer_name,
     )
 
 

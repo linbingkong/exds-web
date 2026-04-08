@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 from webapp.models.settlement import SettlementVersion
 from webapp.services.retail_monthly_settlement_service import RetailMonthlySettlementService
 from webapp.services.retail_settlement_service import RetailSettlementService
-from webapp.api.dependencies.authz import require_permission
+from webapp.api.dependencies.authz import require_permission, CurrentUserContext
+from webapp.api.masking import mask_response_for_user
+from webapp.services.customer_name_masking_service import customer_name_masking_service
 
 router = APIRouter(prefix="/retail-settlement", tags=["Retail Settlement"])
 
@@ -65,6 +67,7 @@ def get_retail_daily_settlement(
     customer_id: Optional[str] = None,
     include_details: bool = False,
     settlement_type: str = Query("daily", description="结算类型：daily（预结算）或 monthly（月结口径）"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_daily_detail:view")),
 ):
     try:
         query = {
@@ -83,7 +86,7 @@ def get_retail_daily_settlement(
                 doc["_id"] = str(doc["_id"])
             results.append(doc)
 
-        return ResponseModel(code=200, data=results)
+        return ResponseModel(code=200, data=mask_response_for_user(results, ctx))
     except Exception as exc:
         return ResponseModel(code=500, message=str(exc), data=[])
 
@@ -127,24 +130,33 @@ def get_monthly_status(month: str = Query(..., regex=r"^\d{4}-\d{2}$")):
 
 
 @router.get("/monthly-summaries", response_model=ResponseModel)
-def get_monthly_summaries(year: Optional[str] = Query(None, regex=r"^\d{4}$")):
+def get_monthly_summaries(
+    year: Optional[str] = Query(None, regex=r"^\d{4}$"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_monthly_overview:view")),
+):
     summaries = monthly_service.list_monthly_summaries(year)
-    return ResponseModel(data={"summaries": summaries})
+    return ResponseModel(data=mask_response_for_user({"summaries": summaries}, ctx))
 
 
 @router.get("/monthly-customers", response_model=ResponseModel)
-def get_monthly_customers(month: str = Query(..., regex=r"^\d{4}-\d{2}$")):
+def get_monthly_customers(
+    month: str = Query(..., regex=r"^\d{4}-\d{2}$"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_monthly_detail:view")),
+):
     records = monthly_service.get_customer_records(month)
     for rec in records:
         rec["_id"] = str(rec["_id"])
-    return ResponseModel(data=records)
+    return ResponseModel(data=mask_response_for_user(records, ctx))
 
 
 @router.get("/monthly-chart-data", response_model=ResponseModel)
-def get_monthly_chart_data(month: str = Query(..., regex=r"^\d{4}-\d{2}$")):
+def get_monthly_chart_data(
+    month: str = Query(..., regex=r"^\d{4}-\d{2}$"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_monthly_detail:view")),
+):
     try:
         data = monthly_service.get_month_chart_data(month)
-        return ResponseModel(data=data)
+        return ResponseModel(data=mask_response_for_user(data, ctx))
     except Exception as exc:
         return ResponseModel(code=500, message=str(exc), data={"customer_points": [], "package_summary": []})
 
@@ -152,13 +164,25 @@ def get_monthly_chart_data(month: str = Query(..., regex=r"^\d{4}-\d{2}$")):
 @router.get("/monthly-customer-detail", response_model=ResponseModel)
 def get_monthly_customer_detail(
     month: str = Query(..., regex=r"^\d{4}-\d{2}$"),
-    customer_name: str = Query(..., description="客户名称"),
+    customer_id: Optional[str] = Query(None, description="客户ID"),
+    customer_name: Optional[str] = Query(None, description="客户名称"),
+    ctx: CurrentUserContext = Depends(require_permission("module:settlement_monthly_detail:view")),
 ):
     """获取单个客户的月度结算详情"""
-    doc = monthly_service.db[monthly_service.CUSTOMER_COLLECTION].find_one(
-        {"month": month, "customer_name": customer_name}
-    )
+    resolved_customer_id = customer_id
+    if not resolved_customer_id and customer_name:
+        resolved_customer_id = customer_name_masking_service.resolve_customer_id_by_display_name(customer_name)
+
+    query = {"month": month}
+    if resolved_customer_id:
+        query["customer_id"] = resolved_customer_id
+    elif customer_name:
+        query["customer_name"] = customer_name
+    else:
+        return ResponseModel(code=400, message="customer_id 或 customer_name 至少提供一个", data=None)
+
+    doc = monthly_service.db[monthly_service.CUSTOMER_COLLECTION].find_one(query)
     if not doc:
         return ResponseModel(code=404, message="未找到该客户月度结算数据", data=None)
     doc["_id"] = str(doc["_id"])
-    return ResponseModel(data=doc)
+    return ResponseModel(data=mask_response_for_user(doc, ctx))

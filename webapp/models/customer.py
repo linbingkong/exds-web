@@ -89,6 +89,7 @@ class CustomerCreate(BaseModel):
     # 客户基本信息
     user_name: str = Field(..., min_length=1, description="客户全称")
     short_name: str = Field(..., min_length=1, description="客户简称")
+    needs_name_masking: Optional[bool] = Field(None, description="是否需要客户名称脱敏")
     
     # 位置信息 (关联 weather_locations)
     location: Optional[str] = Field(None, description="气象区域名称 (关联 weather_locations.name)")
@@ -117,6 +118,7 @@ class CustomerUpdate(BaseModel):
     """客户更新模型 (v2，所有字段可选)"""
     user_name: Optional[str] = Field(None, min_length=1, description="客户全称")
     short_name: Optional[str] = Field(None, min_length=1, description="客户简称")
+    needs_name_masking: Optional[bool] = Field(None, description="是否需要客户名称脱敏")
     location: Optional[str] = Field(None, description="气象区域名称")
     source: Optional[str] = Field(None, description="客户来源")
     manager: Optional[str] = Field(None, description="客户经理")
@@ -131,6 +133,7 @@ class CustomerListItem(BaseModel):
     id: str = Field(..., description="客户ID")
     user_name: str = Field(..., description="客户全称")
     short_name: Optional[str] = Field(None, description="客户简称")
+    needs_name_masking: Optional[bool] = Field(None, description="是否需要客户名称脱敏")
     location: Optional[str] = Field(None, description="气象区域")
     tags: List[Tag] = Field(default_factory=list, description="标签列表")
     account_count: int = Field(0, description="户号数量")

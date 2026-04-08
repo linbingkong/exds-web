@@ -10,7 +10,9 @@ from webapp.services.contract_service import ContractService
 from webapp.tools.mongo import DATABASE
 from webapp.tools.security import get_current_active_user, User
 from webapp.tools.excel_handler import ExcelReader, DataValidator, ContractDataTransformer
-from webapp.api.dependencies.authz import require_permission
+from webapp.api.dependencies.authz import require_permission, CurrentUserContext
+from webapp.api.masking import mask_response_for_user
+from webapp.services.customer_name_masking_service import customer_name_masking_service
 
 router = APIRouter(prefix="/retail-contracts", tags=["Retail Contracts"])
 
@@ -56,7 +58,8 @@ async def list_contracts(
     sort_order: Optional[str] = Query("desc", description="排序方向(asc/desc)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页大小"),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    ctx: CurrentUserContext = Depends(require_permission("module:customer_retail_contracts:view")),
 ):
     """
     获取合同列表
@@ -72,11 +75,14 @@ async def list_contracts(
     - page_size: 每页数量
     """
     service = ContractService(DATABASE)
+    use_masked_customer_search = bool(customer_name and not ctx.can_view_real_customer_name)
+    matched_customer_ids = customer_name_masking_service.search_customer_ids_by_keyword(customer_name or "") if use_masked_customer_search else []
     result = service.list(
         filters={
             "contract_name": contract_name,
             "package_name": package_name,
-            "customer_name": customer_name,
+            "customer_name": None if use_masked_customer_search else customer_name,
+            "customer_ids": matched_customer_ids,
             "status": status,
             "year": year,
             "purchase_start_month": purchase_start_month,
@@ -87,7 +93,7 @@ async def list_contracts(
         sort_field=sort_field,
         sort_order=sort_order
     )
-    return result
+    return mask_response_for_user(result, ctx)
 
 
 @router.get("/years", response_model=List[int])
@@ -209,7 +215,7 @@ async def export_contracts(
     start_month: Optional[str] = Query(None, description="购电开始月份筛选(YYYY-MM)"),
     end_month: Optional[str] = Query(None, description="购电结束月份筛选(YYYY-MM)"),
     current_user: User = Depends(get_current_active_user),
-    _ctx = Depends(require_permission("customer:contract:export"))
+    ctx: CurrentUserContext = Depends(require_permission("customer:contract:export"))
 ):
     """
     导出合同数据为Excel文件
@@ -226,8 +232,14 @@ async def export_contracts(
         query = {}
         if package_name:
             query["package_name"] = {"$regex": package_name, "$options": "i"}
-        if customer_name:
+        if customer_name and ctx.can_view_real_customer_name:
             query["customer_name"] = {"$regex": customer_name, "$options": "i"}
+        elif customer_name:
+            matched_customer_ids = customer_name_masking_service.search_customer_ids_by_keyword(customer_name)
+            if matched_customer_ids:
+                query["customer_id"] = {"$in": matched_customer_ids}
+            else:
+                query["customer_id"] = {"$in": ["__no_match__"]}
         if start_month:
             query["purchase_start_month"] = {"$gte": start_month}
         if end_month:
@@ -235,6 +247,7 @@ async def export_contracts(
 
         # 2. 查询数据
         contracts = list(DATABASE.retail_contracts.find(query).sort("created_at", -1))
+        contracts = mask_response_for_user(contracts, ctx)
 
         # 3. 计算虚拟状态并添加到数据中
         processed_contracts = []
@@ -292,13 +305,14 @@ async def export_contracts(
 @router.get("/{contract_id}", response_model=dict)
 async def get_contract(
     contract_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    ctx: CurrentUserContext = Depends(require_permission("module:customer_retail_contracts:view")),
 ):
     """获取合同详情"""
     service = ContractService(DATABASE)
     try:
         result = service.get_by_id(contract_id)
-        return result
+        return mask_response_for_user(result, ctx)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -858,11 +872,18 @@ async def import_create_contract(
 @router.get("/{contract_id}/pdf", summary="获取合同PDF文件")
 async def get_contract_pdf(
     contract_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    ctx: CurrentUserContext = Depends(require_permission("module:customer_retail_contracts:view")),
 ):
     """
     获取合同的PDF文件，返回PDF文件流供预览/下载
     """
+    if not ctx.can_view_real_customer_name:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="当前角色不允许查看原始合同文件",
+        )
+
     pdf_service = ContractPdfService(DATABASE)
     
     result = pdf_service.get_contract_pdf(contract_id)
@@ -940,7 +961,8 @@ async def upload_single_pdf(
 @router.get("/{contract_id}/has-pdf", summary="检查合同是否有PDF")
 async def check_contract_has_pdf(
     contract_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    _ctx: CurrentUserContext = Depends(require_permission("module:customer_retail_contracts:view")),
 ):
     """
     检查合同是否已上传PDF文件
@@ -949,4 +971,3 @@ async def check_contract_has_pdf(
     has_pdf = pdf_service.has_pdf(contract_id)
     
     return {"has_pdf": has_pdf}
-

@@ -60,6 +60,7 @@ EXCEPTION_PERMISSIONS: List[Dict[str, str]] = [
     {"code": "customer:profile:delete", "name": "客户删除", "description": "删除客户档案数据"},
     {"code": "customer:contract:delete", "name": "合同删除", "description": "删除零售合同数据"},
     {"code": "customer:package:delete", "name": "套餐删除", "description": "删除零售套餐数据"},
+    {"code": "data:customer_name:view_real", "name": "查看真实客户名称", "description": "允许查看真实客户名称，不启用演示脱敏"},
     {"code": "load:data:reaggregate", "name": "负荷数据重新聚合", "description": "执行负荷数据重新聚合任务"},
     {"code": "settlement:recalc:execute", "name": "结算重算执行", "description": "执行大规模结算重算"},
     {"code": "system:auth:manage", "name": "用户与权限管理", "description": "管理用户、角色、权限"},
@@ -202,9 +203,11 @@ def _build_roles(now: str) -> List[Dict[str, Any]]:
         return out
 
     viewer_permissions = module_perms(all_modules, ["view"])
+    viewer_permissions.append("data:customer_name:view_real")
 
     analyst_permissions = module_perms(all_modules, ["view"])
     analyst_permissions.extend(module_perms([m for m in all_modules if m in ANALYST_EDIT_MODULES], ["edit"]))
+    analyst_permissions.append("data:customer_name:view_real")
     for mc in ANALYST_EDIT_MODULES:
         analyst_permissions.extend(LEGACY_BY_MODULE_EDIT.get(mc, []))
 
@@ -215,6 +218,7 @@ def _build_roles(now: str) -> List[Dict[str, Any]]:
     business_permissions.append("customer:profile:delete")
     business_permissions.append("customer:contract:delete")
     business_permissions.append("customer:package:delete")
+    business_permissions.append("data:customer_name:view_real")
     business_permissions.append("load:data:reaggregate")
     business_permissions.append("settlement:recalc:execute")
 
@@ -284,6 +288,17 @@ def _build_roles(now: str) -> List[Dict[str, Any]]:
             "name": "只读用户",
             "description": "全模块只读",
             "permissions": uniq(viewer_permissions),
+            "is_system": True,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+            "seed_version": "1.1",
+        },
+        {
+            "code": "demo_viewer",
+            "name": "演示用户",
+            "description": "可查看全部页面，默认按演示规则隐藏真实客户名称",
+            "permissions": uniq(module_perms(all_modules, ["view"])),
             "is_system": True,
             "is_active": True,
             "created_at": now,

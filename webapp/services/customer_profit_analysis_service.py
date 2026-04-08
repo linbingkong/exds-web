@@ -24,6 +24,7 @@ class CustomerProfitAnalysisService:
         month: int,
         view_mode: str,
         search: Optional[str] = None,
+        customer_ids: Optional[List[str]] = None,
         sort_field: str = "gross_profit",
         sort_order: str = "desc",
         page: int = 1,
@@ -40,6 +41,12 @@ class CustomerProfitAnalysisService:
                 monthly_rows.extend(self._load_platform_daily_customer_profit(month_str))
 
         merged_rows = self._attach_customer_short_names(self._merge_customer_profit_rows(monthly_rows))
+        if customer_ids is not None:
+            customer_id_set = {str(customer_id) for customer_id in customer_ids if customer_id}
+            merged_rows = [
+                row for row in merged_rows
+                if str(row.get("customer_id") or "") in customer_id_set
+            ]
 
         return {
             "kpi": self._build_kpi(merged_rows, source_map),

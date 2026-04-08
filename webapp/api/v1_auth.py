@@ -302,6 +302,7 @@ async def get_me(
         roles=ctx.role_codes,
         permissions=ctx.permission_codes,
         is_super_admin=ctx.is_super_admin,
+        can_view_real_customer_name=ctx.can_view_real_customer_name,
         idle_timeout_minutes=IDLE_TIMEOUT_MINUTES,
     )
 

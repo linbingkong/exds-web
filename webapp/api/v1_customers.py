@@ -8,7 +8,9 @@ from webapp.models.customer import (
 from webapp.services.customer_service import CustomerService
 from webapp.tools.mongo import DATABASE
 from webapp.tools.security import get_current_active_user, User
-from webapp.api.dependencies.authz import require_permission
+from webapp.api.dependencies.authz import require_permission, CurrentUserContext
+from webapp.api.masking import mask_response_for_user
+from webapp.services.customer_name_masking_service import customer_name_masking_service
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
@@ -43,11 +45,12 @@ async def create_customer(
 
 @router.get("/sync-preview", response_model=List[SyncCandidate])
 async def preview_sync_data(
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    ctx: CurrentUserContext = Depends(require_permission("module:customer_profiles:view")),
 ):
     """预览从原始数据同步的客户"""
     service = CustomerService(DATABASE)
-    return service.preview_sync_data()
+    return mask_response_for_user(service.preview_sync_data(), ctx)
 
 
 @router.post("/sync", response_model=dict)
@@ -89,34 +92,41 @@ async def list_customers(
     page_size: int = Query(20, ge=1, le=100, description="每页大小"),
     sort_field: str = Query("created_at", description="排序字段"),
     sort_order: str = Query("desc", description="排序顺序 (asc/desc)"),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    ctx: CurrentUserContext = Depends(require_permission("module:customer_profiles:view")),
 ):
     """获取客户列表 (v2)"""
     service = CustomerService(DATABASE)
+    use_masked_keyword_search = bool(keyword and not ctx.can_view_real_customer_name)
+    matched_customer_ids = customer_name_masking_service.search_customer_ids_by_keyword(keyword or "") if use_masked_keyword_search else []
     result = service.list(
         filters={
             "keyword": keyword,
-            "tags": tags
+            "tags": tags,
+            "customer_ids": matched_customer_ids,
+            "include_name_search": not use_masked_keyword_search,
+            "include_account_search": True,
         },
         page=page,
         page_size=page_size,
         sort_field=sort_field,
         sort_order=sort_order
     )
-    return result
+    return mask_response_for_user(result, ctx)
 
 
 
 @router.get("/{customer_id}", response_model=dict)
 async def get_customer(
     customer_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    ctx: CurrentUserContext = Depends(require_permission("module:customer_profiles:view")),
 ):
     """获取客户详情"""
     service = CustomerService(DATABASE)
     try:
         result = service.get_by_id(customer_id)
-        return result
+        return mask_response_for_user(result, ctx)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -382,7 +392,8 @@ async def delete_metering_point(
 @router.get("/meter-info/{meter_id}", response_model=MeterInfo)
 async def get_meter_info(
     meter_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    _ctx: CurrentUserContext = Depends(require_permission("module:customer_profiles:view")),
 ):
     """获取电表信息（用于自动填充）"""
     service = CustomerService(DATABASE)
@@ -630,7 +641,8 @@ async def terminate(
 
 @router.get("/customer-tags", response_model=List[dict])
 async def get_customer_tags(
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    _ctx: CurrentUserContext = Depends(require_permission("module:customer_profiles:view")),
 ):
     """获取所有可用的客户标签"""
     from webapp.tools.mongo import DATABASE
@@ -817,7 +829,8 @@ async def delete_customer_tag(
 @router.get("/{customer_id}/contracts", response_model=List[dict])
 async def get_customer_contracts(
     customer_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    ctx: CurrentUserContext = Depends(require_permission("module:customer_profiles:view")),
 ):
     """获取客户关联的零售合同"""
     from webapp.tools.mongo import DATABASE
@@ -842,4 +855,4 @@ async def get_customer_contracts(
             "contracted_quantity": contract.get("purchasing_electricity_quantity")
         })
     
-    return result
+    return mask_response_for_user(result, ctx)

@@ -21,6 +21,7 @@ interface UserInfo {
     roles: string[];
     permissions: string[];
     is_super_admin: boolean;
+    can_view_real_customer_name: boolean;
     idle_timeout_minutes: number;
 }
 
@@ -32,6 +33,7 @@ interface AuthContextType {
     roles: string[];
     permissions: string[];
     isSuperAdmin: boolean;
+    canViewRealCustomerName: boolean;
     hasPermission: (code: string) => boolean;
     isPermissionLoaded: boolean;
     login: (token: string) => void;
@@ -80,6 +82,7 @@ const AuthContext = createContext<AuthContextType>({
     roles: [],
     permissions: [],
     isSuperAdmin: false,
+    canViewRealCustomerName: false,
     hasPermission: () => false,
     isPermissionLoaded: false,
     login: () => { },
@@ -95,6 +98,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [roles, setRoles] = useState<string[]>([]);
     const [permissions, setPermissions] = useState<string[]>([]);
     const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+    const [canViewRealCustomerName, setCanViewRealCustomerName] = useState<boolean>(false);
     const [isPermissionLoaded, setIsPermissionLoaded] = useState<boolean>(false);
 
     // 空闲超时相关
@@ -121,6 +125,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setRoles([]);
         setPermissions([]);
         setIsSuperAdmin(false);
+        setCanViewRealCustomerName(false);
         setIsPermissionLoaded(false);
         setShowIdleWarning(false);
         if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
@@ -139,6 +144,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setRoles(info.roles);
             setPermissions(info.permissions);
             setIsSuperAdmin(info.is_super_admin);
+            setCanViewRealCustomerName(info.can_view_real_customer_name);
             setIdleTimeoutMinutes(info.idle_timeout_minutes || 30);
             writePermissionSnapshot({
                 permissions: info.permissions || [],
@@ -314,6 +320,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 roles,
                 permissions,
                 isSuperAdmin,
+                canViewRealCustomerName,
                 hasPermission,
                 isPermissionLoaded,
                 login,

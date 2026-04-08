@@ -708,6 +708,8 @@ class DashboardService:
                 {
                     "source": "customer_anomaly_alerts",
                     "alert_id": str(doc.get("_id")),
+                    "customer_id": str(doc.get("customer_id") or ""),
+                    "customer_name": str(doc.get("customer_name") or "未知客户"),
                     "level": level,
                     "title": f"{doc.get('customer_name') or '未知客户'} {doc.get('alert_type') or '异动告警'}",
                     "content": str(doc.get("reason") or ""),

@@ -63,6 +63,7 @@ import { RetailMonthlyTab } from './RetailMonthlyTab';
 // 类型定义
 interface MonthlyCustomer {
     _id: string;
+    customer_id?: string;
     customer_name: string;
     daily_energy_mwh: number;
     retail_fee: number;
@@ -407,7 +408,7 @@ const WholesaleMobileList: React.FC<{ items: any; reconciliation?: Reconciliatio
 const CustomerMobileCard: React.FC<{
     customer: MonthlyCustomer;
     index: number;
-    onClick?: (name: string) => void;
+    onClick?: (customer: MonthlyCustomer) => void;
 }> = ({ customer, index, onClick }) => {
     const theme = useTheme();
     return (
@@ -424,7 +425,7 @@ const CustomerMobileCard: React.FC<{
                     variant="text"
                     color="primary"
                     endIcon={<ArrowForwardIosIcon sx={{ fontSize: '10px !important' }} />}
-                    onClick={() => onClick?.(customer.customer_name)}
+                    onClick={() => onClick?.(customer)}
                     sx={{ p: 0, minWidth: 'auto', fontWeight: 800, fontSize: '0.75rem' }}
                 >
                     查看明细
@@ -562,8 +563,8 @@ const MonthlySettlementAnalysisPage: React.FC<{ initialMonth?: string }> = ({ in
 
     const monthStr = selectedDate ? format(selectedDate, 'yyyy-MM') : '';
 
-    const handleViewDetail = useCallback((customerName: string) => {
-        const path = `/settlement/monthly-customer-detail?month=${monthStr}&customer_name=${encodeURIComponent(customerName)}`;
+    const handleViewDetail = useCallback((customerId: string, customerName: string) => {
+        const path = `/settlement/monthly-customer-detail?month=${monthStr}&customer_id=${encodeURIComponent(customerId)}&customer_name=${encodeURIComponent(customerName)}`;
         if (isMobile) {
             navigate(path);
         } else if (tabContext) {
@@ -573,6 +574,7 @@ const MonthlySettlementAnalysisPage: React.FC<{ initialMonth?: string }> = ({ in
                 path: path,
                 component: <SingleCustomerMonthlyDetailPage
                     initialMonth={monthStr}
+                    initialCustomerId={customerId}
                     initialCustomerName={customerName}
                 />,
             });

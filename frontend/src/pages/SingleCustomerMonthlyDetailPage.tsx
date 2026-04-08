@@ -83,14 +83,16 @@ const STAGE_COLORS = {
 
 const SingleCustomerMonthlyDetailPage: React.FC<{
     initialMonth?: string;
+    initialCustomerId?: string;
     initialCustomerName?: string;
-}> = ({ initialMonth, initialCustomerName }) => {
+}> = ({ initialMonth, initialCustomerId, initialCustomerName }) => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const [searchParams] = useSearchParams();
 
     // Tab 嵌入模式：用 props；路由模式：用 searchParams
     const resolvedMonth = initialMonth || searchParams.get('month') || format(addMonths(new Date(), -1), 'yyyy-MM');
+    const resolvedCustomerId = initialCustomerId || searchParams.get('customer_id') || '';
     const resolvedCustomerName = initialCustomerName || searchParams.get('customer_name') || '';
 
     const [monthStr, setMonthStr] = useState(resolvedMonth);
@@ -107,14 +109,18 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
         title: `电量与价格时段分布图 (${monthStr})`
     });
 
-    const fetchData = async (month: string, customerName: string) => {
-        if (!customerName) return;
+    const fetchData = async (month: string, customerId: string, customerName: string) => {
+        if (!customerId && !customerName) return;
 
         setLoading(true);
         setError(null);
         try {
             const res = await apiClient.get('/api/v1/retail-settlement/monthly-customer-detail', {
-                params: { month, customer_name: customerName }
+                params: {
+                    month,
+                    ...(customerId ? { customer_id: customerId } : {}),
+                    ...(customerName ? { customer_name: customerName } : {}),
+                }
             });
             if (res.data.code === 200) {
                 setData(res.data.data);
@@ -129,13 +135,13 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
     };
 
     useEffect(() => {
-        if (resolvedCustomerName) {
-            fetchData(monthStr, resolvedCustomerName);
+        if (resolvedCustomerId || resolvedCustomerName) {
+            fetchData(monthStr, resolvedCustomerId, resolvedCustomerName);
         }
-    }, [monthStr]);
+    }, [monthStr, resolvedCustomerId, resolvedCustomerName]);
 
     useEffect(() => {
-        if (resolvedCustomerName && data?.customer_id) {
+        if ((resolvedCustomerId || resolvedCustomerName) && data?.customer_id) {
             // 获取日结算数据 (月结口径)
             setLoadingDaily(true);
             const d = parse(monthStr, 'yyyy-MM', new Date());
@@ -159,7 +165,7 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
         } else {
             setDailyData([]);
         }
-    }, [monthStr, data?.customer_id]);
+    }, [monthStr, data?.customer_id, resolvedCustomerId, resolvedCustomerName]);
 
     const handleShiftMonth = (months: number) => {
         const d = parse(monthStr, 'yyyy-MM', new Date());
@@ -199,7 +205,7 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
 
     if (loading && !data) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularProgress /></Box>;
     if (error) return <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>;
-    if (!resolvedCustomerName) return <Alert severity="info" sx={{ m: 2 }}>无客户名称</Alert>;
+    if (!resolvedCustomerId && !resolvedCustomerName) return <Alert severity="info" sx={{ m: 2 }}>无客户信息</Alert>;
     if (!data) return <Alert severity="info" sx={{ m: 2 }}>暂无数据</Alert>;
 
     const cd = data;
@@ -309,7 +315,7 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
                             ml: { xs: 0.5, sm: 1 }
                         }}>
                             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
-                                {resolvedCustomerName}
+                                {cd.customer_name || resolvedCustomerName || resolvedCustomerId}
                             </Typography>
                             {cd.package_name && (
                                 <Box sx={{
@@ -328,7 +334,7 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
                             )}
                         </Box>
                     </Box>
-                    <Button size="small" startIcon={<RefreshIcon />} onClick={() => fetchData(monthStr, resolvedCustomerName)} disabled={loading}>刷新</Button>
+                    <Button size="small" startIcon={<RefreshIcon />} onClick={() => fetchData(monthStr, resolvedCustomerId, resolvedCustomerName)} disabled={loading}>刷新</Button>
                 </Paper>
 
                 {/* 第一层：6 个 Summary Cards */}

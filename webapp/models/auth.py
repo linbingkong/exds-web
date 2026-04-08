@@ -34,6 +34,7 @@ class CurrentUserContext(BaseModel):
     role_codes: List[str] = []
     permission_codes: List[str] = []
     is_super_admin: bool = False       # 是否超管，超管跳过所有权限检查
+    can_view_real_customer_name: bool = False
 
 
 class UserInfo(BaseModel):
@@ -44,6 +45,7 @@ class UserInfo(BaseModel):
     roles: List[str] = []
     permissions: List[str] = []
     is_super_admin: bool = False
+    can_view_real_customer_name: bool = False
     idle_timeout_minutes: int = 15     # 前端用于配置空闲超时
 
 
