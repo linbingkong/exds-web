@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from webapp.api.dependencies.authz import CurrentUserContext, require_permission
 from webapp.models.trade_review import DayAheadReviewResponse
 from webapp.services.trade_review_service import TradeReviewService
@@ -77,6 +77,7 @@ class SimulationDetailModel(BaseModel):
     trade_source_id: str
     target_date: str
     current_server_time: str
+    declaration_time: str = ""
     trade_type: TradeType
     strategy_name: str
     strategy_id: str = ""
@@ -94,11 +95,12 @@ class ManualSimulationPayload(BaseModel):
     target_date: str
     bid_mwh_30m: List[float]
 
-    @validator("bid_mwh_30m")
-    def validate_values(cls, values: List[float]) -> List[float]:
-        if len(values) != PERIOD_COUNT:
+    @field_validator("bid_mwh_30m")
+    @classmethod
+    def validate_values(cls, value: List[float]) -> List[float]:
+        if len(value) != PERIOD_COUNT:
             raise ValueError("bid_mwh_30m 必须包含 48 个点位")
-        return values
+        return value
 
 
 class ManualSimulationResetPayload(BaseModel):
@@ -230,10 +232,7 @@ def _real_trade_target_date_from_id(trade_source_id: str) -> str:
     if not _is_real_trade_source_id(trade_source_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交易来源不存在")
     if trade_source_id == "real_da":
-        latest_target_date = _get_latest_real_trade_target_date()
-        if latest_target_date:
-            return latest_target_date
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到真实日前交易数据")
+        return _tomorrow_str()
     raw = trade_source_id.removeprefix("real_da_")
     try:
         return datetime.strptime(raw, "%Y%m%d").strftime("%Y-%m-%d")
@@ -271,7 +270,7 @@ def _get_latest_real_trade_target_date() -> Optional[str]:
 
 
 def _build_real_trade_source(target_date: Optional[str] = None) -> Dict[str, Any]:
-    resolved_target_date = target_date or _get_latest_real_trade_target_date() or datetime.now().strftime("%Y-%m-%d")
+    resolved_target_date = target_date or _tomorrow_str()
     target_dt = _parse_date(resolved_target_date)
     return {
         "trade_source_id": "real_da",
@@ -458,6 +457,50 @@ def _real_trade_review_or_404(target_date: str, detail: str = "未找到对应�
         return _get_trade_review_service().get_day_ahead_review(target_date)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail) from exc
+
+
+def _has_real_trade_review(target_date: str) -> bool:
+    try:
+        _get_trade_review_service().get_day_ahead_review(target_date)
+        return True
+    except ValueError:
+        return False
+
+
+def _build_empty_real_result_doc(trade_source: Dict[str, Any], target_date: str) -> Dict[str, Any]:
+    zero_curve = [0.0] * PERIOD_COUNT
+    return {
+        "trade_id": _trade_id(trade_source["trade_source_id"], target_date),
+        "trade_type": trade_source["trade_type"],
+        "trade_source_id": trade_source["trade_source_id"],
+        "trade_source_name": trade_source.get("trade_source_name", ""),
+        "strategy_id": trade_source.get("strategy_id", ""),
+        "strategy_code": trade_source.get("strategy_code", ""),
+        "forecast_date": _parse_date(target_date),
+        "target_date": _parse_date(target_date),
+        "trade_date_str": target_date,
+        "status": "created",
+        "max_bid_mwh_per_period": 0.0,
+        "bid_ratio": zero_curve.copy(),
+        "bid_mwh": zero_curve.copy(),
+        "original_bid_mwh": zero_curve.copy(),
+        "daily_bid_mwh": 0.0,
+        "daily_expected_pnl": 0.0,
+        "daily_realized_pnl": 0.0,
+        "daily_profitable_amount": 0.0,
+        "daily_loss_amount": 0.0,
+        "daily_win_periods": 0,
+        "daily_loss_periods": 0,
+        "daily_avg_spread": 0.0,
+        "price_forecast_30m": [],
+        "dayahead_price_30m": [],
+        "econ_price_30m": [],
+        "rt_price_30m": [],
+        "settlement_spread": zero_curve.copy(),
+        "period_pnl": zero_curve.copy(),
+        "created_at": _parse_date(target_date),
+        "updated_at": _parse_date(target_date),
+    }
 
 
 def _real_trade_results_for_range(trade_source: Dict[str, Any], start_date: str, end_date: str) -> List[Dict[str, Any]]:
@@ -785,6 +828,8 @@ def _ensure_strategy_results_for_range(trade_source: Dict[str, Any], start_date:
 
 def _next_day_declare_status(trade_source_id: str) -> DeclareStatus:
     target_date = _tomorrow_str()
+    if _is_real_trade_source_id(trade_source_id):
+        return "已申报" if _has_real_trade_review(target_date) else "未申报"
     result = DATABASE.bid_strategy_results.find_one(
         {
             "$or": [
@@ -818,10 +863,10 @@ def _get_strategy_result_or_404(trade_source: Dict[str, Any], target_date: str, 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
 
-def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any]) -> SimulationDetailModel:
+def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any], next_status: DeclareStatus = "已申报") -> SimulationDetailModel:
     is_editable = trade_source.get("trade_type") == "manual" and trade_source.get("source_kind") != "real_trade"
-    next_status = "已申报"
     target_date = str(result_doc.get("trade_date_str") or _serialize_timestamp(result_doc.get("target_date")) or "")
+    declaration_time = _serialize_timestamp(result_doc.get("updated_at")) or _serialize_timestamp(result_doc.get("created_at"))
     price_curve = _resolve_dayahead_forecast_curve(target_date, result_doc)
     bid_curve = _coerce_curve(result_doc.get("bid_mwh"))
     if len(bid_curve) < PERIOD_COUNT:
@@ -830,6 +875,7 @@ def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any
         trade_source_id=str(trade_source.get("trade_source_id") or ""),
         target_date=target_date,
         current_server_time=datetime.now().isoformat(),
+        declaration_time=declaration_time,
         trade_type=trade_source["trade_type"],
         strategy_name=str(trade_source.get("trade_source_name") or ""),
         strategy_id=str(trade_source.get("strategy_id") or ""),
@@ -1056,7 +1102,7 @@ def get_trade_sources(_ctx: CurrentUserContext = Depends(require_permission(VIEW
     ]
     real_items: List[TradeSourceListItemModel] = []
     if _get_latest_real_trade_target_date():
-        real_items.append(TradeSourceListItemModel(**_map_trade_source_doc(_build_real_trade_source(), "已申报")))
+        real_items.append(TradeSourceListItemModel(**_map_trade_source_doc(_build_real_trade_source(), _next_day_declare_status("real_da"))))
     return [*real_items, *simulation_items]
 
 
@@ -1109,8 +1155,14 @@ def delete_trade_source(trade_source_id: str, _ctx: CurrentUserContext = Depends
 def get_next_day_simulation(trade_source_id: str = Query(...), _ctx: CurrentUserContext = Depends(require_permission(VIEW_PERMISSION))) -> SimulationDetailModel:
     trade_source = _get_trade_source_or_404(trade_source_id)
     if trade_source.get("source_kind") == "real_trade":
-        target_date = trade_source.get("target_date") or _real_trade_target_date_from_id(trade_source_id)
-        return _simulation_response(trade_source, _adapt_trade_review_to_result(trade_source, _real_trade_review_or_404(target_date)))
+        target_date = _tomorrow_str()
+        try:
+            review = _real_trade_review_or_404(target_date)
+            return _simulation_response(trade_source, _adapt_trade_review_to_result(trade_source, review), "已申报")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_404_NOT_FOUND:
+                raise
+            return _simulation_response(trade_source, _build_empty_real_result_doc(trade_source, target_date), "未申报")
     target_date = _tomorrow_str()
     result_doc = _ensure_strategy_result(trade_source, target_date)
     if not result_doc:

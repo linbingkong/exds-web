@@ -793,7 +793,7 @@ export const DayAheadSimulationPage: React.FC = () => {
         {
             label: '申报时间',
             value: simulation.next_day_declare_status === '已申报'
-                ? (currentDetail?.updated_at ? format(new Date(currentDetail.updated_at), 'yyyy-MM-dd HH:mm') : '--')
+                ? (simulation.declaration_time ? format(new Date(simulation.declaration_time), 'yyyy-MM-dd HH:mm') : '--')
                 : '--',
         },
         { label: '申报状态', value: simulation.next_day_declare_status },
@@ -943,7 +943,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                                 tickLine={false}
                                             />
                                             <YAxis width={44} label={{ value: '元/MWh', angle: -90, position: 'insideLeft' }} />
-                                            <Line type="monotone" dataKey="priceForecast" stroke="#1d4ed8" dot={false} strokeWidth={2.2} />
+                                            <Line type="monotone" dataKey="priceForecast" stroke="#1d4ed8" dot={false} strokeWidth={2.2} isAnimationActive={false} />
                                             {simulationHoveredPeriod != null && <ReferenceLine x={simulationHoveredPeriod} stroke="#64748b" strokeDasharray="4 4" />}
                                             {simulationRefAreaLeft != null && simulationRefAreaRight != null && (
                                                 <ReferenceArea
@@ -1000,7 +1000,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                                     fillOpacity={0.18}
                                                 />
                                             )}
-                                            <Bar dataKey="bidMwh" fill={simulation.trade_type === 'manual' ? '#2563eb' : '#0f766e'} radius={[4, 4, 0, 0]} />
+                                            <Bar dataKey="bidMwh" fill={simulation.trade_type === 'manual' ? '#2563eb' : '#0f766e'} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
@@ -1295,7 +1295,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             <XAxis dataKey="date" hide interval={0} />
                                             <YAxis tick={{ fontSize: 12 }} />
                                             {profitHoveredDate && <ReferenceLine x={profitHoveredDate} stroke="#64748b" strokeDasharray="4 4" />}
-                                            <Line type="monotone" dataKey="strategyValue" stroke="#1d4ed8" strokeWidth={2.2} dot={false} connectNulls={false} name="策略收益" />
+                                            <Line type="monotone" dataKey="strategyValue" stroke="#1d4ed8" strokeWidth={2.2} dot={false} connectNulls={false} name="策略收益" isAnimationActive={false} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
@@ -1318,7 +1318,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             />
                                             <YAxis tick={{ fontSize: 12 }} />
                                             {profitHoveredDate && <ReferenceLine x={profitHoveredDate} stroke="#64748b" strokeDasharray="4 4" />}
-                                            <Bar dataKey="bidTotalMwh" fill="#2563eb" name="申报电量" />
+                                            <Bar dataKey="bidTotalMwh" fill="#2563eb" name="申报电量" isAnimationActive={false} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
@@ -1571,12 +1571,12 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             <XAxis dataKey="period" hide />
                                             <YAxis tick={{ fontSize: 12 }} domain={reviewPriceDomain} />
                                             {reviewHoveredPeriod != null && <ReferenceLine x={reviewHoveredPeriod} stroke="#64748b" strokeDasharray="4 4" />}
-                                            <Area type="monotone" dataKey="positivePriceBase" stackId="positiveSpread" fill="transparent" stroke="none" />
-                                            <Area type="monotone" dataKey="positivePriceGap" stackId="positiveSpread" fill="#86efac" fillOpacity={0.55} stroke="none" />
-                                            <Area type="monotone" dataKey="negativePriceBase" stackId="negativeSpread" fill="transparent" stroke="none" />
-                                            <Area type="monotone" dataKey="negativePriceGap" stackId="negativeSpread" fill="#fdba74" fillOpacity={0.55} stroke="none" />
-                                            <Line type="monotone" dataKey="econ_price_yuan_per_mwh" stroke="#2563eb" strokeWidth={2.2} dot={false} name="经济出清价格" />
-                                            <Line type="monotone" dataKey="realtime_price_yuan_per_mwh" stroke="#475569" strokeWidth={2.2} dot={false} name="实时现货价格" />
+                                            <Area type="monotone" dataKey="positivePriceBase" stackId="positiveSpread" fill="transparent" stroke="none" isAnimationActive={false} />
+                                            <Area type="monotone" dataKey="positivePriceGap" stackId="positiveSpread" fill="#86efac" fillOpacity={0.55} stroke="none" isAnimationActive={false} />
+                                            <Area type="monotone" dataKey="negativePriceBase" stackId="negativeSpread" fill="transparent" stroke="none" isAnimationActive={false} />
+                                            <Area type="monotone" dataKey="negativePriceGap" stackId="negativeSpread" fill="#fdba74" fillOpacity={0.55} stroke="none" isAnimationActive={false} />
+                                            <Line type="monotone" dataKey="econ_price_yuan_per_mwh" stroke="#2563eb" strokeWidth={2.2} dot={false} name="经济出清价格" isAnimationActive={false} />
+                                            <Line type="monotone" dataKey="realtime_price_yuan_per_mwh" stroke="#475569" strokeWidth={2.2} dot={false} name="实时现货价格" isAnimationActive={false} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
@@ -1593,7 +1593,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             <XAxis dataKey="period" interval={3} tick={{ fontSize: 11 }} height={36} />
                                             <YAxis tick={{ fontSize: 12 }} />
                                             {reviewHoveredPeriod != null && <ReferenceLine x={reviewHoveredPeriod} stroke="#64748b" strokeDasharray="4 4" />}
-                                            <Bar dataKey="bid_mwh" name="申报电量">
+                                            <Bar dataKey="bid_mwh" name="申报电量" isAnimationActive={false}>
                                                 {reviewChartRows.map((row) => (
                                                     <Cell key={`review-bar-${row.period}`} fill={row.barColor} />
                                                 ))}

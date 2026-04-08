@@ -44,6 +44,7 @@ export interface SimulationDetail {
     trade_source_id: string;
     target_date: string;
     current_server_time: string;
+    declaration_time: string;
     trade_type: TradeType;
     strategy_name: string;
     strategy_id: string;
@@ -354,6 +355,7 @@ function buildSimulationDetailFromState(item: TradeSourceDetail, targetDate: str
         trade_source_id: item.trade_source_id,
         target_date: targetDate,
         current_server_time: format(new Date(), 'yyyy-MM-dd HH:mm:ss'),
+        declaration_time: item.updated_at || item.created_at || '',
         trade_type: item.trade_type,
         strategy_name: item.trade_source_name,
         strategy_id: item.strategy_id,
