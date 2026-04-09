@@ -16,14 +16,9 @@ import {
     Alert,
     Collapse,
     Button,
-    Tabs,
-    Tab,
     useTheme,
     useMediaQuery,
-    Tooltip,
-    Select,
-    MenuItem,
-    FormControl
+    Tooltip
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -105,6 +100,18 @@ interface ExecutionHistoryResponse {
     total_batches: number;
     batches: ExecutionBatch[];
     has_data: boolean;
+}
+
+interface TaskHistoryGroup {
+    group_key: string;
+    pipeline_name: string;
+    task_key: string;
+    execution_count: number;
+    success_count: number;
+    failed_count: number;
+    skipped_count: number;
+    last_execution_time: string;
+    records: ExecutionHistoryItem[];
 }
 
 interface AlertItem {
@@ -325,8 +332,8 @@ export const RpaMonitorPage: React.FC = () => {
     const [executionHistory, setExecutionHistory] = useState<ExecutionHistoryResponse | null>(null);
     const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
-    // 批次选择
-    const [selectedBatchIndex, setSelectedBatchIndex] = useState<number>(0);
+    // 历史任务展开状态
+    const [expandedHistoryTasks, setExpandedHistoryTasks] = useState<Record<string, boolean>>({});
 
     // 告警展开状态
     const [alertsExpanded, setAlertsExpanded] = useState(true);
@@ -358,13 +365,6 @@ export const RpaMonitorPage: React.FC = () => {
             setDailySummary(summaryRes.data);
             setExecutionHistory(historyRes.data);
             setAlerts(alertsRes.data.alerts || []);
-
-            // 默认选择最后一个批次
-            if (historyRes.data.batches && historyRes.data.batches.length > 0) {
-                setSelectedBatchIndex(historyRes.data.batches.length - 1);
-            } else {
-                setSelectedBatchIndex(0);
-            }
         } catch (err: any) {
             console.error('加载数据失败:', err);
             setError(err.response?.data?.detail || err.message || '加载数据失败');
@@ -428,8 +428,77 @@ export const RpaMonitorPage: React.FC = () => {
         }
     };
 
-    // 获取当前选中的批次
-    const currentBatch = executionHistory?.batches?.[selectedBatchIndex];
+    const executionHistoryByTask: TaskHistoryGroup[] = (() => {
+        if (!executionHistory?.batches?.length) {
+            return [];
+        }
+
+        const grouped = new Map<string, TaskHistoryGroup>();
+
+        executionHistory.batches.forEach((batch) => {
+            batch.records.forEach((record) => {
+                const groupKey = `${record.pipeline_name}__${record.task_key}`;
+                const existing = grouped.get(groupKey);
+
+                if (!existing) {
+                    grouped.set(groupKey, {
+                        group_key: groupKey,
+                        pipeline_name: record.pipeline_name,
+                        task_key: record.task_key,
+                        execution_count: 1,
+                        success_count: record.status === 'SUCCESS' ? 1 : 0,
+                        failed_count: record.status === 'FAILED' ? 1 : 0,
+                        skipped_count: record.status === 'SKIPPED' ? 1 : 0,
+                        last_execution_time: record.execution_time,
+                        records: [record]
+                    });
+                    return;
+                }
+
+                existing.execution_count += 1;
+                if (record.status === 'SUCCESS') existing.success_count += 1;
+                if (record.status === 'FAILED') existing.failed_count += 1;
+                if (record.status === 'SKIPPED') existing.skipped_count += 1;
+                if (new Date(record.execution_time) > new Date(existing.last_execution_time)) {
+                    existing.last_execution_time = record.execution_time;
+                }
+                existing.records.push(record);
+            });
+        });
+
+        return Array.from(grouped.values())
+            .map((group) => ({
+                ...group,
+                records: [...group.records].sort(
+                    (a, b) => new Date(b.execution_time).getTime() - new Date(a.execution_time).getTime()
+                )
+            }))
+            .sort(
+                (a, b) => new Date(b.last_execution_time).getTime() - new Date(a.last_execution_time).getTime()
+            );
+    })();
+
+    useEffect(() => {
+        if (!executionHistoryByTask.length) {
+            setExpandedHistoryTasks({});
+            return;
+        }
+
+        setExpandedHistoryTasks((prev) => {
+            const nextState: Record<string, boolean> = {};
+            executionHistoryByTask.forEach((group, index) => {
+                nextState[group.group_key] = prev[group.group_key] ?? index === 0;
+            });
+            return nextState;
+        });
+    }, [executionHistory?.date, executionHistoryByTask]);
+
+    const toggleHistoryTask = (groupKey: string) => {
+        setExpandedHistoryTasks((prev) => ({
+            ...prev,
+            [groupKey]: !prev[groupKey]
+        }));
+    };
 
     // 渲染空状态
     const renderEmptyState = () => (
@@ -763,115 +832,130 @@ export const RpaMonitorPage: React.FC = () => {
                                 </Paper>
 
                                 {/* 执行历史（移动端隐藏） */}
-                                {!isSmallScreen && executionHistory?.has_data && executionHistory.batches.length > 0 && (
+                                {!isSmallScreen && executionHistory?.has_data && executionHistoryByTask.length > 0 && (
                                     <Paper variant="outlined" sx={{ mt: 2, p: { xs: 1, sm: 2 } }}>
                                         <Typography variant="h6" gutterBottom>
                                             执行历史
                                         </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                            按任务汇总展示当日执行记录，便于查看高频任务的执行次数和最近状态。
+                                        </Typography>
 
-                                        {/* 批次选择：移动端用下拉，桌面端用 Tabs */}
-                                        {isSmallScreen ? (
-                                            <FormControl size="small" sx={{ mb: 2, minWidth: 200 }}>
-                                                <Select
-                                                    value={selectedBatchIndex}
-                                                    onChange={(e) => setSelectedBatchIndex(e.target.value as number)}
-                                                >
-                                                    {executionHistory.batches.map((batch, index) => (
-                                                        <MenuItem key={batch.batch_index} value={index}>
-                                                            {batch.batch_time} 第{batch.batch_index}次 ({batch.task_count}个任务)
-                                                        </MenuItem>
-                                                    ))}
-                                                </Select>
-                                            </FormControl>
-                                        ) : (
-                                            <Tabs
-                                                value={selectedBatchIndex}
-                                                onChange={(_, val) => setSelectedBatchIndex(val)}
-                                                variant="scrollable"
-                                                scrollButtons="auto"
-                                                sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
-                                            >
-                                                {executionHistory.batches.map((batch, index) => (
-                                                    <Tab
-                                                        key={batch.batch_index}
-                                                        label={`${batch.batch_time} 第${batch.batch_index}次`}
-                                                        value={index}
-                                                    />
-                                                ))}
-                                            </Tabs>
-                                        )}
+                                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                            {executionHistoryByTask.map((group) => {
+                                                const isExpanded = !!expandedHistoryTasks[group.group_key];
 
-                                        {/* 当前批次详情 */}
-                                        {currentBatch && (
-                                            <>
-                                                <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-                                                    <Chip
-                                                        label={`任务数: ${currentBatch.task_count}`}
-                                                        variant="outlined"
-                                                        size="small"
-                                                    />
-                                                    <Chip
-                                                        icon={<CheckCircleIcon />}
-                                                        label={`成功: ${currentBatch.success_count}`}
-                                                        color="success"
-                                                        variant="outlined"
-                                                        size="small"
-                                                    />
-                                                    <Chip
-                                                        icon={<CancelIcon />}
-                                                        label={`失败: ${currentBatch.failed_count}`}
-                                                        color="error"
-                                                        variant="outlined"
-                                                        size="small"
-                                                    />
-                                                </Box>
+                                                return (
+                                                    <Paper key={group.group_key} variant="outlined">
+                                                        <Box
+                                                            sx={{
+                                                                px: 2,
+                                                                py: 1.5,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 1.5,
+                                                                cursor: 'pointer',
+                                                                flexWrap: 'wrap'
+                                                            }}
+                                                            onClick={() => toggleHistoryTask(group.group_key)}
+                                                        >
+                                                            <Box sx={{ flex: 1, minWidth: 240 }}>
+                                                                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                                                                    {group.task_key}
+                                                                </Typography>
+                                                                <Typography variant="caption" color="text.secondary">
+                                                                    {group.pipeline_name} · 最近执行 {format(new Date(group.last_execution_time), 'HH:mm:ss')}
+                                                                </Typography>
+                                                            </Box>
 
-                                                <TableContainer sx={{ overflowX: 'auto' }}>
-                                                    <Table
-                                                        size="small"
-                                                        sx={{
-                                                            '& .MuiTableCell-root': {
-                                                                fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                                                                px: { xs: 0.5, sm: 2 }
-                                                            }
-                                                        }}
-                                                    >
-                                                        <TableHead>
-                                                            <TableRow>
-                                                                <TableCell>时间</TableCell>
-                                                                <TableCell>管道</TableCell>
-                                                                <TableCell>任务</TableCell>
-                                                                <TableCell>状态</TableCell>
-                                                                <TableCell align="right">耗时</TableCell>
-                                                                <TableCell>消息</TableCell>
-                                                            </TableRow>
-                                                        </TableHead>
-                                                        <TableBody>
-                                                            {currentBatch.records.map((record, index) => (
-                                                                <TableRow key={index}>
-                                                                    <TableCell>
-                                                                        {format(new Date(record.execution_time), 'HH:mm:ss')}
-                                                                    </TableCell>
-                                                                    <TableCell>{record.pipeline_name}</TableCell>
-                                                                    <TableCell>{record.task_key}</TableCell>
-                                                                    <TableCell>
-                                                                        <StatusChip status={record.status} />
-                                                                    </TableCell>
-                                                                    <TableCell align="right">
-                                                                        {record.duration_seconds != null
-                                                                            ? `${record.duration_seconds.toFixed(1)}s`
-                                                                            : '-'}
-                                                                    </TableCell>
-                                                                    <TableCell>
-                                                                        {record.error_message || record.message || '-'}
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            ))}
-                                                        </TableBody>
-                                                    </Table>
-                                                </TableContainer>
-                                            </>
-                                        )}
+                                                            <Chip
+                                                                label={`今日执行 ${group.execution_count} 次`}
+                                                                variant="outlined"
+                                                                size="small"
+                                                            />
+                                                            <Chip
+                                                                icon={<CheckCircleIcon />}
+                                                                label={`成功 ${group.success_count}`}
+                                                                color="success"
+                                                                variant="outlined"
+                                                                size="small"
+                                                            />
+                                                            {group.failed_count > 0 && (
+                                                                <Chip
+                                                                    icon={<CancelIcon />}
+                                                                    label={`失败 ${group.failed_count}`}
+                                                                    color="error"
+                                                                    variant="outlined"
+                                                                    size="small"
+                                                                />
+                                                            )}
+                                                            {group.skipped_count > 0 && (
+                                                                <Chip
+                                                                    icon={<SkipNextIcon />}
+                                                                    label={`跳过 ${group.skipped_count}`}
+                                                                    variant="outlined"
+                                                                    size="small"
+                                                                />
+                                                            )}
+                                                            <IconButton size="small">
+                                                                {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                                                            </IconButton>
+                                                        </Box>
+
+                                                        <Collapse in={isExpanded}>
+                                                            <Box sx={{ px: 2, pb: 2 }}>
+                                                                <TableContainer sx={{ overflowX: 'auto' }}>
+                                                                    <Table
+                                                                        size="small"
+                                                                        sx={{
+                                                                            '& .MuiTableCell-root': {
+                                                                                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                                                                                px: { xs: 0.5, sm: 2 }
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <TableHead>
+                                                                            <TableRow>
+                                                                                <TableCell>时间</TableCell>
+                                                                                <TableCell>状态</TableCell>
+                                                                                <TableCell align="right">耗时</TableCell>
+                                                                                <TableCell align="right">记录数</TableCell>
+                                                                                <TableCell>消息</TableCell>
+                                                                            </TableRow>
+                                                                        </TableHead>
+                                                                        <TableBody>
+                                                                            {group.records.map((record, index) => (
+                                                                                <TableRow key={`${group.group_key}-${record.execution_time}-${index}`}>
+                                                                                    <TableCell>
+                                                                                        {format(new Date(record.execution_time), 'HH:mm:ss')}
+                                                                                    </TableCell>
+                                                                                    <TableCell>
+                                                                                        <StatusChip status={record.status} />
+                                                                                    </TableCell>
+                                                                                    <TableCell align="right">
+                                                                                        {record.duration_seconds != null
+                                                                                            ? `${record.duration_seconds.toFixed(1)}s`
+                                                                                            : '-'}
+                                                                                    </TableCell>
+                                                                                    <TableCell align="right">
+                                                                                        {(record.records_inserted || record.records_updated || record.records_skipped)
+                                                                                            ? `${record.records_inserted > 0 ? `+${record.records_inserted}` : ''}${record.records_updated > 0 ? ` ↻${record.records_updated}` : ''}${record.records_skipped > 0 ? ` 跳${record.records_skipped}` : ''}`.trim()
+                                                                                            : '-'}
+                                                                                    </TableCell>
+                                                                                    <TableCell>
+                                                                                        {record.error_message || record.message || '-'}
+                                                                                    </TableCell>
+                                                                                </TableRow>
+                                                                            ))}
+                                                                        </TableBody>
+                                                                    </Table>
+                                                                </TableContainer>
+                                                            </Box>
+                                                        </Collapse>
+                                                    </Paper>
+                                                );
+                                            })}
+                                        </Box>
                                     </Paper>
                                 )}
                             </>

@@ -18,6 +18,9 @@ router = APIRouter(tags=["v1-market-analysis"])
 DA_PRICE_COLLECTION = DATABASE['day_ahead_spot_price']
 RT_PRICE_COLLECTION = DATABASE['real_time_spot_price']
 DA_ECON_PRICE_COLLECTION = DATABASE['day_ahead_econ_price']
+NODE_SPOT_PRICE_DAILY_COLLECTION = DATABASE['node_spot_price_daily']
+
+DEFAULT_NODE_SPOT_PRICE_NAME = "凌云站/500kV.Ⅰ母"
 
 
 def _safe_finite_float(value: Any) -> Optional[float]:
@@ -42,6 +45,38 @@ def _sanitize_json_floats(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def _build_node_15m_price_map(points: List[Dict[str, Any]]) -> Dict[str, float]:
+    """将节点 5 分钟价格点按 15 分钟窗口聚合为均值，仅保留完整三点窗口。"""
+    if not points:
+        return {}
+
+    raw_price_map: Dict[str, float] = {}
+    for point in points:
+        time_str = point.get("time")
+        cq_price = _safe_finite_float(point.get("cq_price"))
+        if time_str and cq_price is not None:
+            raw_price_map[time_str] = cq_price
+
+    aggregated_map: Dict[str, float] = {}
+    for quarter_index in range(1, 97):
+        total_minutes = quarter_index * 15
+        quarter_time = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+
+        window_times = []
+        for offset in (10, 5, 0):
+            point_minutes = total_minutes - offset
+            point_time = "24:00" if point_minutes == 1440 else f"{point_minutes // 60:02d}:{point_minutes % 60:02d}"
+            window_times.append(point_time)
+
+        if all(time_key in raw_price_map for time_key in window_times):
+            aggregated_map[quarter_time] = round(
+                sum(raw_price_map[time_key] for time_key in window_times) / 3,
+                2
+            )
+
+    return aggregated_map
 
 def get_tou_rule_for_date(date: datetime) -> Dict[str, str]:
     """
@@ -205,6 +240,19 @@ def get_market_dashboard(date_str: str = Query(..., description="查询日期, �
         # [NEW] 查询日前经济出清价格
         da_econ_docs = list(DA_ECON_PRICE_COLLECTION.find(query).sort("datetime", 1))
 
+        has_rt_published = any(
+            _safe_finite_float(doc.get('avg_clearing_price')) is not None
+            for doc in rt_docs
+        )
+
+        node_price_map: Dict[str, float] = {}
+        if not has_rt_published:
+            node_daily_doc = NODE_SPOT_PRICE_DAILY_COLLECTION.find_one(
+                {"node_name": DEFAULT_NODE_SPOT_PRICE_NAME, "date": date_str},
+                {"_id": 0, "points": 1}
+            )
+            node_price_map = _build_node_15m_price_map((node_daily_doc or {}).get("points", []))
+
         start_of_day = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_day = start_of_day + timedelta(days=1)
         actual_operation_query = {"datetime": {"$gt": start_of_day, "$lte": end_of_day}}
@@ -289,6 +337,7 @@ def get_market_dashboard(date_str: str = Query(..., description="查询日期, �
             da_price = _safe_finite_float(da_doc.get('avg_clearing_price'))
             da_volume = _safe_finite_float(da_doc.get('total_clearing_power')) or 0.0
             rt_price = _safe_finite_float(rt_doc.get('avg_clearing_price'))
+            node_rt_price = node_price_map.get(time_str) if not has_rt_published else None
             rt_volume = _safe_finite_float(rt_doc.get('total_clearing_power')) or 0.0
             rt_wind = _safe_finite_float(rt_doc.get('wind_clearing_power')) or 0.0
             rt_solar = _safe_finite_float(rt_doc.get('solar_clearing_power')) or 0.0
@@ -331,6 +380,7 @@ def get_market_dashboard(date_str: str = Query(..., description="查询日期, �
                 "time": time_str,
                 "time_str": time_str,
                 "price_rt": rt_price,
+                "node_rt_price": node_rt_price,
                 "price_da": da_price,
                 "price_econ": price_econ, # [NEW] 添加到响应中
                 "volume_rt": market_bidding_space_rt,
@@ -433,7 +483,11 @@ def get_market_dashboard(date_str: str = Query(..., description="查询日期, �
             "financial_kpis": financial_kpis,
             "risk_kpis": risk_kpis,
             "time_series": time_series,
-            "period_summary": period_summary
+            "period_summary": period_summary,
+            "node_rt_fallback": {
+                "enabled": (not has_rt_published) and bool(node_price_map),
+                "node_name": DEFAULT_NODE_SPOT_PRICE_NAME
+            }
         })
 
     except ValueError:

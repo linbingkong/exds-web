@@ -51,6 +51,7 @@ interface TimeSeriesPoint {
     time: string;
     time_str: string;
     price_rt: number | null;
+    node_rt_price?: number | null;
     price_da: number | null;
     price_da_forecast?: number | null;
     price_econ: number | null;
@@ -83,6 +84,10 @@ interface DashboardData {
     period_summary: PeriodSummary[];
     forecast_avg_price?: number | null;
     forecast_accuracy?: number | null;
+    node_rt_fallback?: {
+        enabled: boolean;
+        node_name: string;
+    };
 }
 
 interface PriceForecastVersion {
@@ -98,7 +103,7 @@ interface PriceForecastAccuracy {
     wmape_accuracy?: number | null;
 }
 
-type PriceSeriesKey = 'price_rt' | 'price_da' | 'price_da_forecast' | 'price_econ';
+type PriceSeriesKey = 'price_rt' | 'node_rt_price' | 'price_da' | 'price_da_forecast' | 'price_econ';
 
 const mergeForecastIntoTimeSeries = async (
     timeSeries: TimeSeriesPoint[],
@@ -426,8 +431,12 @@ const CustomTooltipContent: React.FC<any> = ({ active, payload, label, unit }) =
 // 价格曲线图组件
 const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShift?: (days: number) => void }> = ({ data, dateStr, onDateShift }) => {
     const chartRef = useRef<HTMLDivElement>(null);
+    const hasPublishedRtPrice = data.some(point => point.price_rt !== null && point.price_rt !== undefined);
+    const hasNodeRtPrice = data.some(point => point.node_rt_price !== null && point.node_rt_price !== undefined);
+    const showNodeRtPrice = !hasPublishedRtPrice && hasNodeRtPrice;
     const { seriesVisibility, handleLegendClick } = useSelectableSeries<PriceSeriesKey>({
         price_rt: true,
+        node_rt_price: true,
         price_da: true,
         price_da_forecast: true,
         price_econ: true
@@ -436,6 +445,7 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
     // 计算Y轴范围
     const prices = data.flatMap(d => [
         seriesVisibility.price_rt ? d.price_rt : null,
+        showNodeRtPrice && seriesVisibility.node_rt_price ? d.node_rt_price ?? null : null,
         seriesVisibility.price_da ? d.price_da : null,
         seriesVisibility.price_da_forecast ? d.price_da_forecast : null,
         seriesVisibility.price_econ ? d.price_econ : null
@@ -524,8 +534,21 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
                                 strokeWidth={2}
                                 name="实时价格"
                                 dot={false}
-                                hide={!seriesVisibility.price_rt}
+                                hide={!seriesVisibility.price_rt || !hasPublishedRtPrice}
                             />
+                            {showNodeRtPrice && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="node_rt_price"
+                                    stroke="#d32f2f"
+                                    strokeWidth={2}
+                                    strokeDasharray="6 4"
+                                    name="节点实时价格"
+                                    dot={false}
+                                    hide={!seriesVisibility.node_rt_price}
+                                    isAnimationActive={false}
+                                />
+                            )}
                             <Line
                                 type="monotone"
                                 dataKey="price_da"
