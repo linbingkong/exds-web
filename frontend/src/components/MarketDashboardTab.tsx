@@ -437,8 +437,8 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
     const { seriesVisibility, handleLegendClick } = useSelectableSeries<PriceSeriesKey>({
         price_rt: true,
         node_rt_price: true,
-        price_da: true,
-        price_da_forecast: true,
+        price_da: false,
+        price_da_forecast: false,
         price_econ: true
     });
 
@@ -540,9 +540,9 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
                                 <Line
                                     type="monotone"
                                     dataKey="node_rt_price"
-                                    stroke="#d32f2f"
-                                    strokeWidth={2}
-                                    strokeDasharray="6 4"
+                                    stroke="#ff1f1f"
+                                    strokeWidth={3}
+                                    strokeDasharray="10 5"
                                     name="节点实时价格"
                                     dot={false}
                                     hide={!seriesVisibility.node_rt_price}
