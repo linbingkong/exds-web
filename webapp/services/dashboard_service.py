@@ -4,7 +4,7 @@
 import calendar
 import math
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from webapp.services.contract_service import ContractService
@@ -20,6 +20,7 @@ from webapp.tools.mongo import DATABASE
 class DashboardService:
     """聚合交易总览首页所需数据。"""
     CUSTOMER_ALERT_MIN_USAGE_SHARE = 3.0
+    DEFAULT_NODE_SPOT_PRICE_NAME = "凌云站/500kV.Ⅰ母"
 
     def __init__(self):
         self.db = DATABASE
@@ -384,7 +385,7 @@ class DashboardService:
         }
 
     def get_market_intraday(self, date: Optional[str] = None) -> Dict[str, Any]:
-        target_date = date or self._get_latest_market_intraday_date()
+        target_date = date or datetime.now().strftime("%Y-%m-%d")
         if not target_date:
             return {
                 "date": None,
@@ -393,9 +394,14 @@ class DashboardService:
                     "econ_avg": None,
                     "avg_spread": None,
                 },
+                "fallback": {
+                    "enabled": False,
+                    "node_name": self.DEFAULT_NODE_SPOT_PRICE_NAME,
+                },
                 "chart_data": [],
             }
 
+        target_dt = datetime.strptime(target_date, "%Y-%m-%d")
         rt_docs = list(
             self.db["real_time_spot_price"].find(
                 {"date_str": target_date},
@@ -408,6 +414,10 @@ class DashboardService:
                 {"_id": 0, "time_str": 1, "clearing_price": 1},
             ).sort("datetime", 1)
         )
+        node_daily_doc = self.db["node_spot_price_daily"].find_one(
+            {"node_name": self.DEFAULT_NODE_SPOT_PRICE_NAME, "date": target_date},
+            {"_id": 0, "points": 1},
+        )
 
         rt_map = {
             str(doc.get("time_str")): self._safe_finite_float(doc.get("avg_clearing_price"))
@@ -419,8 +429,17 @@ class DashboardService:
             for doc in econ_docs
             if doc.get("time_str")
         }
-        times = sorted(set(rt_map.keys()) | set(econ_map.keys()))
-        tou_rules = get_tou_rule_by_date(datetime.strptime(target_date, "%Y-%m-%d"))
+        node_map = self._build_node_15m_price_map((node_daily_doc or {}).get("points", []))
+        has_rt_published = any(value is not None for value in rt_map.values())
+        use_node_fallback = (not has_rt_published) and bool(node_map)
+
+        times = sorted(set(rt_map.keys()) | set(econ_map.keys()) | set(node_map.keys()))
+        if not times:
+            times = [
+                "24:00" if quarter == 96 else f"{(quarter * 15) // 60:02d}:{(quarter * 15) % 60:02d}"
+                for quarter in range(1, 97)
+            ]
+        tou_rules = get_tou_rule_by_date(target_dt)
 
         chart_data: List[Dict[str, Any]] = []
         real_time_values: List[float] = []
@@ -429,19 +448,24 @@ class DashboardService:
 
         for time_str in times:
             price_rt = rt_map.get(time_str)
+            node_rt_price = node_map.get(time_str)
+            display_rt_price = node_rt_price if use_node_fallback else price_rt
             price_econ = econ_map.get(time_str)
             period_type = tou_rules.get(time_str, "平段")
-            if price_rt is not None:
-                real_time_values.append(price_rt)
+            if display_rt_price is not None:
+                real_time_values.append(display_rt_price)
             if price_econ is not None:
                 econ_values.append(price_econ)
-            if price_rt is not None and price_econ is not None:
-                spread_values.append(price_rt - price_econ)
+            if display_rt_price is not None and price_econ is not None:
+                spread_values.append(display_rt_price - price_econ)
 
             chart_data.append(
                 {
                     "time": time_str,
                     "price_rt": round(price_rt, 3) if price_rt is not None else None,
+                    "price_rt_display": round(display_rt_price, 3) if display_rt_price is not None else None,
+                    "price_rt_fallback": round(node_rt_price, 3) if node_rt_price is not None else None,
+                    "price_rt_is_fallback": bool(use_node_fallback and node_rt_price is not None),
                     "price_econ": round(price_econ, 3) if price_econ is not None else None,
                     "period_type": period_type,
                 }
@@ -457,6 +481,10 @@ class DashboardService:
                 "real_time_avg": round(real_time_avg, 3) if real_time_avg is not None else None,
                 "econ_avg": round(econ_avg, 3) if econ_avg is not None else None,
                 "avg_spread": round(avg_spread, 3) if avg_spread is not None else None,
+            },
+            "fallback": {
+                "enabled": use_node_fallback,
+                "node_name": self.DEFAULT_NODE_SPOT_PRICE_NAME,
             },
             "chart_data": chart_data,
         }
@@ -785,6 +813,35 @@ class DashboardService:
                 return date_str
         latest_rt = self.db["real_time_spot_price"].find_one({}, {"_id": 0, "date_str": 1}, sort=[("date_str", -1)])
         return str(latest_rt.get("date_str")) if latest_rt and latest_rt.get("date_str") else None
+
+    def _build_node_15m_price_map(self, points: List[Dict[str, Any]]) -> Dict[str, float]:
+        if not points:
+            return {}
+
+        raw_price_map: Dict[str, float] = {}
+        for point in points:
+            time_str = point.get("time")
+            cq_price = self._safe_finite_float(point.get("cq_price"))
+            if time_str and cq_price is not None:
+                raw_price_map[str(time_str)] = cq_price
+
+        aggregated_map: Dict[str, float] = {}
+        for quarter_index in range(1, 97):
+            total_minutes = quarter_index * 15
+            quarter_time = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+            window_times = []
+            for offset in (10, 5, 0):
+                point_minutes = total_minutes - offset
+                point_time = "24:00" if point_minutes == 1440 else f"{point_minutes // 60:02d}:{point_minutes % 60:02d}"
+                window_times.append(point_time)
+
+            if all(time_key in raw_price_map for time_key in window_times):
+                aggregated_map[quarter_time] = round(
+                    sum(raw_price_map[time_key] for time_key in window_times) / 3,
+                    2,
+                )
+
+        return aggregated_map
 
     def _safe_finite_float(self, value: Any) -> Optional[float]:
         if value is None:

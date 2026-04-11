@@ -111,6 +111,9 @@ export interface PriceTrendResponse {
 export interface MarketIntradayChartItem {
     time: string;
     price_rt: number | null;
+    price_rt_display?: number | null;
+    price_rt_fallback?: number | null;
+    price_rt_is_fallback?: boolean;
     price_econ: number | null;
     period_type: string;
 }
@@ -121,6 +124,10 @@ export interface MarketIntradayResponse {
         real_time_avg: number | null;
         econ_avg: number | null;
         avg_spread: number | null;
+    };
+    fallback?: {
+        enabled: boolean;
+        node_name?: string | null;
     };
     chart_data: MarketIntradayChartItem[];
 }

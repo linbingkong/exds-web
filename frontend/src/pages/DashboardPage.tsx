@@ -112,6 +112,7 @@ const normalizePercent = (value?: number | null) => {
 };
 
 const parseApiError = (error: any) => error?.response?.data?.detail || error?.message || '交易总览数据加载失败';
+const MARKET_INTRADAY_REFRESH_MS = 15 * 60 * 1000;
 
 const formatAlertTime = (value?: string) => {
     if (!value) return '--';
@@ -216,9 +217,9 @@ export const DashboardPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [contributionMode, setContributionMode] = useState<ContributionMode>('positive');
     const [settlementViewMode, setSettlementViewMode] = useState<SettlementViewMode>('monthly');
-    const [marketViewMode, setMarketViewMode] = useState<MarketViewMode>('trend');
+    const [marketViewMode, setMarketViewMode] = useState<MarketViewMode>('intraday');
     const [marketIntradayLoading, setMarketIntradayLoading] = useState(false);
-    const [marketSelectedDate, setMarketSelectedDate] = useState<Date | null>(null);
+    const [marketSelectedDate, setMarketSelectedDate] = useState<Date | null>(() => new Date());
     const [state, setState] = useState<DashboardState>({
         settlementKpi: null,
         settlementChart: null,
@@ -330,8 +331,12 @@ export const DashboardPage: React.FC = () => {
         };
 
         void loadIntraday();
+        const timer = window.setInterval(() => {
+            void loadIntraday();
+        }, MARKET_INTRADAY_REFRESH_MS);
         return () => {
             cancelled = true;
+            window.clearInterval(timer);
         };
     }, [marketViewMode, marketSelectedDate]);
 
@@ -393,7 +398,15 @@ export const DashboardPage: React.FC = () => {
         () => (state.marketIntraday?.date ? state.marketIntraday.date : '--'),
         [state.marketIntraday]
     );
-    const marketIntradayChartData = state.marketIntraday?.chart_data || [];
+    const marketFallbackEnabled = Boolean(state.marketIntraday?.fallback?.enabled);
+    const marketRtLineLabel = marketFallbackEnabled ? '节点现货' : '实时现货';
+    const marketIntradayChartData = useMemo(
+        () => (state.marketIntraday?.chart_data || []).map((item) => ({
+            ...item,
+            price_rt_line: item.price_rt_display ?? item.price_rt ?? item.price_rt_fallback ?? null,
+        })),
+        [state.marketIntraday]
+    );
     const { TouPeriodAreas } = useTouPeriodBackground(
         marketViewMode === 'intraday' ? marketIntradayChartData : null,
         '24:00'
@@ -887,8 +900,8 @@ export const DashboardPage: React.FC = () => {
                     onChange={(_, value: MarketViewMode | null) => value && setMarketViewMode(value)}
                     sx={{ maxWidth: '100%', flexShrink: 1 }}
                 >
-                    <ToggleButton value="trend">趋势</ToggleButton>
                     <ToggleButton value="intraday">日内</ToggleButton>
+                    <ToggleButton value="trend">趋势</ToggleButton>
                 </ToggleButtonGroup>
             }
             subtitle={
@@ -901,7 +914,7 @@ export const DashboardPage: React.FC = () => {
                         </>
                     ) : (
                         <>
-                            <InlineStat label="实时现货均价" value={`${formatNumber(state.marketIntraday?.stats.real_time_avg, 3)} 元/MWh`} />
+                            <InlineStat label={`${marketRtLineLabel}均价`} value={`${formatNumber(state.marketIntraday?.stats.real_time_avg, 3)} 元/MWh`} />
                             <InlineStat label="经济日前均价" value={`${formatNumber(state.marketIntraday?.stats.econ_avg, 3)} 元/MWh`} />
                             <InlineStat label="平均价差" value={`${formatNumber(state.marketIntraday?.stats.avg_spread, 3)} 元/MWh`} />
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
@@ -965,11 +978,11 @@ export const DashboardPage: React.FC = () => {
                                 content={({ active, payload, label }) => {
                                     if (!active || !payload?.length) return null;
                                     const point = payload[0]?.payload || {};
-                                    const line1Label = marketViewMode === 'intraday' ? '实时现货' : '中长期';
-                                    const line1Value = marketViewMode === 'intraday' ? point.price_rt : point.contract_vwap;
+                                    const line1Label = marketViewMode === 'intraday' ? marketRtLineLabel : '中长期';
+                                    const line1Value = marketViewMode === 'intraday' ? point.price_rt_line : point.contract_vwap;
                                     const line2Label = marketViewMode === 'intraday' ? '经济日前' : '实时现货';
                                     const line2Value = marketViewMode === 'intraday' ? point.price_econ : point.spot_vwap;
-                                    const spreadLabel = marketViewMode === 'intraday' ? '实时-日前' : '实时-中长期';
+                                    const spreadLabel = marketViewMode === 'intraday' ? `${marketRtLineLabel}-日前` : '实时-中长期';
                                     const spread =
                                         line1Value !== null &&
                                         line1Value !== undefined &&
@@ -1017,7 +1030,15 @@ export const DashboardPage: React.FC = () => {
                                 </>
                             ) : (
                                 <>
-                                    <Line type="monotone" dataKey="price_rt" name="实时现货" stroke="#ef4444" strokeWidth={2} dot={false} />
+                                    <Line
+                                        type="monotone"
+                                        dataKey="price_rt_line"
+                                        name={marketRtLineLabel}
+                                        stroke="#ef4444"
+                                        strokeWidth={2}
+                                        strokeDasharray={marketFallbackEnabled ? '6 4' : undefined}
+                                        dot={false}
+                                    />
                                     <Line type="monotone" dataKey="price_econ" name="经济日前" stroke="#2563eb" strokeWidth={2} dot={false} />
                                 </>
                             )}
