@@ -377,7 +377,7 @@ class DashboardService:
         }
 
     def get_alerts(self, limit: int = 10) -> Dict[str, Any]:
-        rows = self._load_system_alerts(limit) + self._load_customer_anomaly_alerts(limit)
+        rows = self._load_system_alerts(limit)
         rows.sort(key=lambda item: item["created_at"], reverse=True)
         return {
             "items": rows[:limit],
