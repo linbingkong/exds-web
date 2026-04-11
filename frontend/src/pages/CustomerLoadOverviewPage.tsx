@@ -97,6 +97,8 @@ const formatYoy = (yoy: number | null): { text: string; color: string; icon: Rea
     return { text: `${yoy >= 0 ? '+' : ''}${yoy}%`, color, icon };
 };
 
+const formatPercentage = (value: number): string => `${value.toFixed(1)}%`;
+
 // ---- 时段结构堆叠条组件 ----
 const TouStackBar: React.FC<{ tou: TouUsage }> = ({ tou }) => {
     const total = tou.tip + tou.peak + tou.flat + tou.valley + tou.deep;
@@ -411,6 +413,12 @@ export const CustomerLoadOverviewPage: React.FC = () => {
         }
         return `${YEAR}年${month}月`;
     }, [month, viewMode]);
+
+    const totalActualUsage = kpi?.actual_total_usage ?? 0;
+
+    const getActualUsageShare = (actualUsage: number): number => (
+        totalActualUsage > 0 ? (actualUsage / totalActualUsage) * 100 : 0
+    );
 
     // ---- 渲染 KPI 卡片 ----
     const renderKpiCards = () => {
@@ -742,6 +750,7 @@ export const CustomerLoadOverviewPage: React.FC = () => {
     const renderCustomerCard = (row: CustomerListItem) => {
         const yoyInfo = formatYoy(row.actual_yoy);
         const signedYoyInfo = formatYoy(row.signed_yoy);
+        const actualUsageShare = getActualUsageShare(row.actual_usage);
 
         return (
             <Card
@@ -794,6 +803,9 @@ export const CustomerLoadOverviewPage: React.FC = () => {
                             <Typography variant="caption" color="text.secondary">实测电量</Typography>
                             <Typography variant="body2" fontWeight="medium">
                                 {formatNumber(row.actual_usage)} MWh
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                占比 {formatPercentage(actualUsageShare)}
                             </Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', color: yoyInfo.color }}>
                                 {yoyInfo.icon}
@@ -899,6 +911,7 @@ export const CustomerLoadOverviewPage: React.FC = () => {
                                         实测电量
                                     </TableSortLabel>
                                 </TableCell>
+                                <TableCell align="right">占比</TableCell>
                                 <TableCell align="right">
                                     <TableSortLabel
                                         active={sortField === 'actual_yoy'}
@@ -925,6 +938,7 @@ export const CustomerLoadOverviewPage: React.FC = () => {
                             {customerList?.items.map((row) => {
                                 const yoyInfo = formatYoy(row.actual_yoy);
                                 const signedYoyInfo = formatYoy(row.signed_yoy);
+                                const actualUsageShare = getActualUsageShare(row.actual_usage);
                                 return (
                                     <TableRow key={row.customer_id} hover>
                                         <TableCell>
@@ -953,6 +967,7 @@ export const CustomerLoadOverviewPage: React.FC = () => {
                                             </Box>
                                         </TableCell>
                                         <TableCell align="right">{formatNumber(row.actual_usage)} MWh</TableCell>
+                                        <TableCell align="right">{formatPercentage(actualUsageShare)}</TableCell>
                                         <TableCell align="right">
                                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', color: yoyInfo.color }}>
                                                 {yoyInfo.icon}
@@ -978,7 +993,7 @@ export const CustomerLoadOverviewPage: React.FC = () => {
                             })}
                             {(!customerList || customerList.items.length === 0) && (
                                 <TableRow>
-                                    <TableCell colSpan={8} align="center">
+                                    <TableCell colSpan={9} align="center">
                                         <Typography color="text.secondary">暂无数据</Typography>
                                     </TableCell>
                                 </TableRow>
