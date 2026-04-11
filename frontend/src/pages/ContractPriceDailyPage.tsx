@@ -55,7 +55,7 @@ export const ContractPriceDailyPage: React.FC = () => {
     const [summaryError, setSummaryError] = useState<string | null>(null);
 
     // 基准价格选择状态
-    const [selectedBenchmark, setSelectedBenchmark] = useState<'day_ahead' | 'real_time'>('day_ahead');
+    const [selectedBenchmark, setSelectedBenchmark] = useState<'day_ahead' | 'real_time'>('real_time');
 
     const dateStr = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : '';
 

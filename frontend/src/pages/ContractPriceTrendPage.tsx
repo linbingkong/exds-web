@@ -62,7 +62,7 @@ export const ContractPriceTrendPage: React.FC = () => {
     const [endDate, setEndDate] = useState<Date | null>(subDays(new Date(), 1));
 
     // 基准现货类型
-    const [spotBenchmark, setSpotBenchmark] = useState<'day_ahead' | 'real_time'>('day_ahead');
+    const [spotBenchmark, setSpotBenchmark] = useState<'day_ahead' | 'real_time'>('real_time');
 
     // ========== 状态提升：数据管理 ==========
     // 价格走势数据
