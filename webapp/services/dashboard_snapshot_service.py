@@ -102,7 +102,7 @@ class DashboardSnapshotService:
             "trade_summary": self.dashboard_service.get_trade_summary(settlement_month),
             "customer_overview": self.dashboard_service.get_customer_overview(now.year, now.month),
             "customer_profit_contribution": self.dashboard_service.get_customer_profit_contribution(now.year, now.month),
-            "alerts": self.dashboard_service.get_alerts(8),
+            "alerts": self.dashboard_service.get_alerts(10),
             "price_trend": self._normalize_value(price_trend.model_dump()),
         }
 

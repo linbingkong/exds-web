@@ -41,6 +41,8 @@ import { addDays, format, parseISO } from 'date-fns';
 import {
     CustomerOverviewResponse,
     CustomerProfitContributionResponse,
+    DashboardAlertsResponse,
+    DashboardAlertItem,
     DashboardSummaryResponse,
     MarketIntradayResponse,
     PriceTrendResponse,
@@ -65,6 +67,7 @@ interface DashboardState {
     customerProfit: CustomerProfitContributionResponse | null;
     priceTrend: PriceTrendResponse | null;
     marketIntraday: MarketIntradayResponse | null;
+    alerts: DashboardAlertsResponse | null;
     snapshotMeta: Pick<DashboardSummaryResponse, 'snapshot_id' | 'status' | 'month' | 'generated_at'> | null;
 }
 
@@ -109,6 +112,28 @@ const normalizePercent = (value?: number | null) => {
 };
 
 const parseApiError = (error: any) => error?.response?.data?.detail || error?.message || '交易总览数据加载失败';
+
+const formatAlertTime = (value?: string) => {
+    if (!value) return '--';
+    try {
+        return format(parseISO(value), 'MM-dd HH:mm');
+    } catch {
+        return value;
+    }
+};
+
+const getAlertLevelColor = (level?: string) => {
+    switch (level) {
+        case 'P1':
+            return '#dc2626';
+        case 'P2':
+            return '#f59e0b';
+        case 'P3':
+            return '#2563eb';
+        default:
+            return '#64748b';
+    }
+};
 
 const DashboardPanel: React.FC<{
     title: string;
@@ -203,6 +228,7 @@ export const DashboardPage: React.FC = () => {
         customerProfit: null,
         priceTrend: null,
         marketIntraday: null,
+        alerts: null,
         snapshotMeta: null,
     });
 
@@ -225,6 +251,7 @@ export const DashboardPage: React.FC = () => {
                     customerProfit: summary.customer_profit_contribution,
                     priceTrend: summary.price_trend,
                     marketIntraday: null,
+                    alerts: summary.alerts,
                     snapshotMeta: {
                         snapshot_id: summary.snapshot_id,
                         status: summary.status,
@@ -244,6 +271,28 @@ export const DashboardPage: React.FC = () => {
         };
 
         void loadAll();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadAlerts = async () => {
+            try {
+                const alerts = await dashboardApi.getAlerts(10);
+                if (cancelled) return;
+                setState((prev) => ({
+                    ...prev,
+                    alerts,
+                }));
+            } catch (err) {
+                console.error('加载交易总览告警失败', err);
+            }
+        };
+
+        void loadAlerts();
         return () => {
             cancelled = true;
         };
@@ -981,29 +1030,87 @@ export const DashboardPage: React.FC = () => {
 
     const alertsPanel = (
         <DashboardPanel title="异常告警" icon={<NotificationsActiveOutlinedIcon fontSize="small" />}>
-            <Box
-                sx={{
-                    height: { xs: 160, md: '100%' },
-                    borderRadius: 2,
-                    border: '1px dashed',
-                    borderColor: 'divider',
-                    bgcolor: alpha(theme.palette.background.default, 0.6),
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 1,
-                    px: 2,
-                    textAlign: 'center',
-                }}
-            >
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    异常告警区域预留
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                    后续按告警分级、来源聚合和跳转策略再细化。
-                </Typography>
-            </Box>
+            {state.alerts?.items?.length ? (
+                <Stack spacing={1} sx={{ height: { xs: 'auto', md: '100%' }, overflow: 'auto', pr: 0.5 }}>
+                    {state.alerts.items.map((item: DashboardAlertItem) => (
+                        <Tooltip
+                            key={`${item.source}-${item.alert_id}`}
+                            title={
+                                <Box sx={{ maxWidth: 360 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                                        {item.title}
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                                        {item.content || '暂无告警详情'}
+                                    </Typography>
+                                </Box>
+                            }
+                            placement="left-start"
+                            arrow
+                        >
+                            <Box
+                                sx={{
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    borderRadius: 2,
+                                    px: 1.25,
+                                    py: 1,
+                                    bgcolor: alpha(theme.palette.background.default, 0.55),
+                                    transition: 'all 0.2s ease',
+                                    cursor: 'default',
+                                    '&:hover': {
+                                        borderColor: 'primary.light',
+                                        bgcolor: alpha(theme.palette.primary.light, 0.08),
+                                    },
+                                }}
+                            >
+                                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 1, alignItems: 'center' }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap>
+                                        {item.title}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                                        {formatAlertTime(item.created_at)}
+                                    </Typography>
+                                    <Typography
+                                        variant="caption"
+                                        sx={{
+                                            color: getAlertLevelColor(item.level),
+                                            fontWeight: 800,
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                        {item.level || '--'}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        </Tooltip>
+                    ))}
+                </Stack>
+            ) : (
+                <Box
+                    sx={{
+                        height: { xs: 160, md: '100%' },
+                        borderRadius: 2,
+                        border: '1px dashed',
+                        borderColor: 'divider',
+                        bgcolor: alpha(theme.palette.background.default, 0.6),
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 1,
+                        px: 2,
+                        textAlign: 'center',
+                    }}
+                >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                        暂无活跃告警
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        当前仅展示活跃告警与活跃客户相关告警。
+                    </Typography>
+                </Box>
+            )}
         </DashboardPanel>
     );
 

@@ -75,7 +75,7 @@ def get_customer_load_ranking(
 
 @router.get("/alerts", summary="获取交易总览告警摘要")
 def get_alerts(
-    limit: int = Query(8, ge=1, le=20, description="返回数量"),
+    limit: int = Query(10, ge=1, le=20, description="返回数量"),
     ctx: CurrentUserContext = Depends(require_permission("module:dashboard_overview:view")),
 ):
     result = mask_response_for_user(service.get_alerts(limit), ctx)

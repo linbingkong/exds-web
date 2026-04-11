@@ -7,6 +7,7 @@ import statistics
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from webapp.services.contract_service import ContractService
 from webapp.services.customer_load_overview_service import CustomerLoadOverviewService
 from webapp.services.customer_profit_analysis_service import CustomerProfitAnalysisService
 from webapp.services.monthly_trade_review_service import MonthlyTradeReviewService
@@ -18,9 +19,11 @@ from webapp.tools.mongo import DATABASE
 
 class DashboardService:
     """聚合交易总览首页所需数据。"""
+    CUSTOMER_ALERT_MIN_USAGE_SHARE = 3.0
 
     def __init__(self):
         self.db = DATABASE
+        self.contract_service = ContractService(DATABASE)
         self.settlement_service = SettlementService()
         self.retail_monthly_service = RetailMonthlySettlementService()
         self.customer_profit_service = CustomerProfitAnalysisService()
@@ -372,7 +375,7 @@ class DashboardService:
             "items": items,
         }
 
-    def get_alerts(self, limit: int = 8) -> Dict[str, Any]:
+    def get_alerts(self, limit: int = 10) -> Dict[str, Any]:
         rows = self._load_system_alerts(limit) + self._load_customer_anomaly_alerts(limit)
         rows.sort(key=lambda item: item["created_at"], reverse=True)
         return {
@@ -659,7 +662,7 @@ class DashboardService:
         return rows
 
     def _load_system_alerts(self, limit: int) -> List[Dict[str, Any]]:
-        cursor = self.db["system_alerts"].find().sort("created_at", -1).limit(limit)
+        cursor = self.db["system_alerts"].find({"status": "ACTIVE"}).sort("created_at", -1).limit(limit)
         items = []
         for doc in cursor:
             created_at = doc.get("created_at")
@@ -679,10 +682,55 @@ class DashboardService:
             )
         return items
 
+    def _get_active_customer_ids(self) -> List[str]:
+        now = datetime.now()
+        start_of_month = datetime(now.year, now.month, 1)
+        if now.month == 12:
+            next_month = datetime(now.year + 1, 1, 1)
+        else:
+            next_month = datetime(now.year, now.month + 1, 1)
+        end_of_month = next_month.replace(hour=23, minute=59, second=59) - datetime.resolution
+        rows = self.contract_service.get_signed_customers_in_range(start_of_month, end_of_month)
+        return [str(item.get("customer_id") or "") for item in rows if item.get("customer_id")]
+
+    def _get_customer_usage_share_map(self) -> Dict[str, float]:
+        year, month = self.get_current_year_month()
+        data = self.customer_load_service.get_dashboard_data(
+            year=year,
+            month=month,
+            view_mode="monthly",
+            page=1,
+            page_size=500,
+        )
+        total_usage = float((data.get("kpi") or {}).get("actual_total_usage") or 0.0)
+        if total_usage <= 0:
+            return {}
+
+        result: Dict[str, float] = {}
+        for item in ((data.get("customer_list") or {}).get("items") or []):
+            customer_id = str(item.get("customer_id") or "")
+            if not customer_id:
+                continue
+            usage = float(item.get("actual_usage") or 0.0)
+            result[customer_id] = round(usage / total_usage * 100, 4)
+        return result
+
     def _load_customer_anomaly_alerts(self, limit: int) -> List[Dict[str, Any]]:
+        active_customer_ids = self._get_active_customer_ids()
+        if not active_customer_ids:
+            return []
+        usage_share_map = self._get_customer_usage_share_map()
+        qualified_customer_ids = [
+            customer_id
+            for customer_id in active_customer_ids
+            if usage_share_map.get(customer_id, 0.0) > self.CUSTOMER_ALERT_MIN_USAGE_SHARE
+        ]
+        if not qualified_customer_ids:
+            return []
+
         pipeline = [
-            {"$match": {"acknowledged": False}},
-            {"$sort": {"alert_date": -1, "created_at": -1}},
+            {"$match": {"acknowledged": False, "customer_id": {"$in": qualified_customer_ids}}},
+            {"$sort": {"created_at": -1, "alert_date": -1}},
             {
                 "$group": {
                     "_id": {"cid": "$customer_id", "type": "$alert_type"},
@@ -690,7 +738,7 @@ class DashboardService:
                 }
             },
             {"$replaceRoot": {"newRoot": "$doc"}},
-            {"$sort": {"alert_date": -1, "created_at": -1}},
+            {"$sort": {"created_at": -1, "alert_date": -1}},
             {"$limit": limit},
         ]
         items = []

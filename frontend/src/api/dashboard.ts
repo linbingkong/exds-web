@@ -173,8 +173,10 @@ export const dashboardApi = {
         const response = await apiClient.get<CustomerProfitContributionResponse>('/api/v1/dashboard/customer-profit-contribution');
         return response.data;
     },
-    getAlerts: async () => {
-        const response = await apiClient.get<DashboardAlertsResponse>('/api/v1/dashboard/alerts');
+    getAlerts: async (limit = 10) => {
+        const response = await apiClient.get<DashboardAlertsResponse>('/api/v1/dashboard/alerts', {
+            params: { limit },
+        });
         return response.data;
     },
 };
