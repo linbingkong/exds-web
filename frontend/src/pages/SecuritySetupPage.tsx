@@ -25,7 +25,6 @@ import {
     changeRequiredPassword,
     completeSecuritySetup,
     getSecurityStatus,
-    resendLoginEmailCode,
     verifySecurityEmail,
     type SecurityStatus,
 } from '../api/securityAuth';
@@ -52,7 +51,6 @@ const SecuritySetupPage: React.FC = () => {
         { key: 'CHANGE_PASSWORD', label: '修改密码' },
         { key: 'BIND_EMAIL', label: '绑定邮箱' },
         { key: 'VERIFY_EMAIL', label: '验证邮箱' },
-        { key: 'LOGIN_EMAIL_VERIFY', label: '新设备验证' },
     ]), []);
 
     const activeStep = useMemo(() => {
@@ -71,6 +69,12 @@ const SecuritySetupPage: React.FC = () => {
             setLoading(true);
             try {
                 const nextStatus = await getSecurityStatus(challengeToken);
+                const onlyLoginEmailVerify = nextStatus.required_actions.length > 0
+                    && nextStatus.required_actions.every((item) => item === 'LOGIN_EMAIL_VERIFY');
+                if (onlyLoginEmailVerify) {
+                    navigate('/login', { replace: true });
+                    return;
+                }
                 setStatus(nextStatus);
                 setEmail(nextStatus.email || '');
             } catch (err) {
@@ -288,55 +292,15 @@ const SecuritySetupPage: React.FC = () => {
                             <Button variant="contained" onClick={handleVerifyCode} disabled={saving}>
                                 验证邮箱
                             </Button>
-                        </Stack>
-                    )}
-
-                    {!status?.required_actions.includes('CHANGE_PASSWORD')
-                        && !status?.required_actions.includes('BIND_EMAIL')
-                        && !status?.required_actions.includes('VERIFY_EMAIL')
-                        && status?.required_actions.includes('LOGIN_EMAIL_VERIFY') && (
-                        <Stack spacing={2}>
-                            <Typography variant="subtitle1">3. 新设备邮件验证</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                                当前登录设备尚未被信任，请输入发送到绑定邮箱的 6 位验证码完成校验。
+                            <Typography variant="caption" color="text.secondary">
+                                邮箱验证完成后，当前登录设备会在进入系统时自动设为已信任设备。
                             </Typography>
-                            <TextField
-                                label="邮箱验证码"
-                                value={code}
-                                onChange={(e) => setCode(e.target.value)}
-                                fullWidth
-                            />
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                                <Button
-                                    variant="outlined"
-                                    onClick={async () => {
-                                        if (!challengeToken) return;
-                                        setSaving(true);
-                                        try {
-                                            const result = await resendLoginEmailCode(challengeToken);
-                                            applyStatus(result, result.message);
-                                        } catch (err) {
-                                            const detail = err instanceof AxiosError ? err.response?.data?.detail : '';
-                                            setError(typeof detail === 'string' ? detail : '验证码发送失败');
-                                        } finally {
-                                            setSaving(false);
-                                        }
-                                    }}
-                                    disabled={saving}
-                                >
-                                    重新发送验证码
-                                </Button>
-                                <Button variant="contained" onClick={handleVerifyCode} disabled={saving}>
-                                    验证当前设备
-                                </Button>
-                            </Stack>
                         </Stack>
                     )}
 
                     {!status?.required_actions.includes('CHANGE_PASSWORD')
                         && !status?.required_actions.includes('BIND_EMAIL')
                         && !status?.required_actions.includes('VERIFY_EMAIL')
-                        && !status?.required_actions.includes('LOGIN_EMAIL_VERIFY')
                         && (
                             <Alert severity="success">必做安全动作已全部完成，可以进入系统。</Alert>
                         )}

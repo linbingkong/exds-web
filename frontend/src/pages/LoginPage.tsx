@@ -22,6 +22,8 @@ import { login } from '../api/client'; // 导入真实的login API
 import { AxiosError } from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { AUTH_STORAGE_KEYS } from '../auth/permissionPrecheck';
+import LoginEmailVerifyDialog from '../components/auth/LoginEmailVerifyDialog';
+import { getSecurityStatus } from '../api/securityAuth';
 
 const LoginPage: React.FC = () => {
     const navigate = useNavigate();
@@ -32,6 +34,7 @@ const LoginPage: React.FC = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [showConflictDialog, setShowConflictDialog] = useState(false);
+    const [showLoginVerifyDialog, setShowLoginVerifyDialog] = useState(false);
 
     useEffect(() => {
         const search = new URLSearchParams(location.search);
@@ -54,6 +57,34 @@ const LoginPage: React.FC = () => {
         }
     }, [isAuthenticated, isPermissionLoaded, location.search, navigate]);
 
+    useEffect(() => {
+        if (isAuthenticated) {
+            return;
+        }
+
+        const challengeToken = localStorage.getItem(AUTH_STORAGE_KEYS.challengeToken);
+        if (!challengeToken) {
+            return;
+        }
+
+        const restoreChallenge = async () => {
+            try {
+                const status = await getSecurityStatus(challengeToken);
+                const onlyLoginEmailVerify = status.required_actions.length > 0
+                    && status.required_actions.every((item) => item === 'LOGIN_EMAIL_VERIFY');
+                if (onlyLoginEmailVerify) {
+                    setShowLoginVerifyDialog(true);
+                } else {
+                    navigate('/security-setup', { replace: true });
+                }
+            } catch {
+                localStorage.removeItem(AUTH_STORAGE_KEYS.challengeToken);
+            }
+        };
+
+        void restoreChallenge();
+    }, [isAuthenticated, navigate]);
+
     const executeLogin = async (force = false) => {
         setError('');
         setLoading(true);
@@ -73,7 +104,16 @@ const LoginPage: React.FC = () => {
                 navigate('/');
             } else if (response.status === 202 && response.data?.challenge_token) {
                 localStorage.setItem(AUTH_STORAGE_KEYS.challengeToken, response.data.challenge_token);
-                navigate('/security-setup');
+                const requiredActions: string[] = Array.isArray(response.data?.required_actions)
+                    ? response.data.required_actions
+                    : [];
+                const onlyLoginEmailVerify = requiredActions.length > 0
+                    && requiredActions.every((item: string) => item === 'LOGIN_EMAIL_VERIFY');
+                if (onlyLoginEmailVerify) {
+                    setShowLoginVerifyDialog(true);
+                } else {
+                    navigate('/security-setup');
+                }
             } else {
                 throw new Error('Token not found in response');
             }
@@ -199,6 +239,15 @@ const LoginPage: React.FC = () => {
                     <Button onClick={handleForceLogin} variant="contained" disabled={loading}>继续并踢下线</Button>
                 </DialogActions>
             </Dialog>
+            <LoginEmailVerifyDialog
+                open={showLoginVerifyDialog}
+                challengeToken={localStorage.getItem(AUTH_STORAGE_KEYS.challengeToken) || ''}
+                onClose={() => setShowLoginVerifyDialog(false)}
+                onNeedSecuritySetup={() => {
+                    setShowLoginVerifyDialog(false);
+                    navigate('/security-setup', { replace: true });
+                }}
+            />
         </Container>
     );
 };
