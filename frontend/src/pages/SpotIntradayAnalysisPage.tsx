@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
-import { Box, Tabs, Tab, Typography, Paper, useMediaQuery, useTheme, IconButton, Divider, CircularProgress } from '@mui/material';
+import React, { useState } from 'react';
+import { Box, Tabs, Tab, Typography, Paper, useMediaQuery, useTheme, IconButton, Divider } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { zhCN } from 'date-fns/locale';
-import { addDays, format } from 'date-fns';
+import { addDays } from 'date-fns';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import TodayIcon from '@mui/icons-material/Today';
 import TimelineIcon from '@mui/icons-material/Timeline';
@@ -15,8 +15,6 @@ import { MarketDashboardTab } from '../components/MarketDashboardTab';
 import { DayAheadAnalysisTab } from '../components/DayAheadAnalysisTab';
 import { RealTimeAnalysisTab } from '../components/RealTimeAnalysisTab';
 import { SpreadAnalysisTab } from '../components/SpreadAnalysisTab';
-import { PriceCurveComparisonTab } from '../components/PriceCurveComparisonTab';
-import { TimeslotAnalysisTab } from '../components/TimeslotAnalysisTab';
 import { useWeather } from '../hooks/useWeather';
 import { WeatherDisplay } from '../components/WeatherDisplay';
 
@@ -31,15 +29,17 @@ interface TabPanelProps {
 
 function TabPanel(props: TabPanelProps) {
     const { children, value, index, ...other } = props;
+    if (value !== index) {
+        return null;
+    }
+
     return (
         <div
             role="tabpanel"
-            hidden={value !== index}
             id={`analysis-tabpanel-${index}`}
             aria-labelledby={`analysis-tab-${index}`}
             {...other}
         >
-            {/* 移除条件渲染，让Tab内容常驻，仅通过CSS显隐 */}
             <Box sx={{ pt: 3 }}>
                 {children}
             </Box>

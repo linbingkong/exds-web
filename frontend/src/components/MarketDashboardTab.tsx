@@ -18,7 +18,6 @@ import { format } from 'date-fns';
 import apiClient from '../api/client';
 import { useTouPeriodBackground } from '../hooks/useTouPeriodBackground';
 import { useChartFullscreen } from '../hooks/useChartFullscreen';
-import { useSelectableSeries } from '../hooks/useSelectableSeries';
 import { CustomTooltip } from './CustomTooltip';
 
 // 类型定义
@@ -53,7 +52,6 @@ interface TimeSeriesPoint {
     price_rt: number | null;
     node_rt_price?: number | null;
     price_da: number | null;
-    price_da_forecast?: number | null;
     price_econ: number | null;
     volume_rt: number;
     volume_da: number;
@@ -82,94 +80,20 @@ interface DashboardData {
     risk_kpis: RiskKPIs;
     time_series: TimeSeriesPoint[];
     period_summary: PeriodSummary[];
-    forecast_avg_price?: number | null;
-    forecast_accuracy?: number | null;
     node_rt_fallback?: {
         enabled: boolean;
         node_name: string;
     };
 }
 
-interface PriceForecastVersion {
-    forecast_id: string;
-}
-
-interface PriceForecastPoint {
-    time: string;
-    predicted_price: number | null;
-}
-
-interface PriceForecastAccuracy {
-    wmape_accuracy?: number | null;
-}
-
-type PriceSeriesKey = 'price_rt' | 'node_rt_price' | 'price_da' | 'price_da_forecast' | 'price_econ';
-
-const mergeForecastIntoTimeSeries = async (
-    timeSeries: TimeSeriesPoint[],
-    dateStr: string
-): Promise<{
-    timeSeries: TimeSeriesPoint[];
-    forecastAvgPrice: number | null;
-    forecastAccuracy: number | null;
-}> => {
-    try {
-        const versionsResponse = await apiClient.get<PriceForecastVersion[]>('/api/v1/price-forecast/versions', {
-            params: { target_date: dateStr, forecast_type: 'd1_price' }
-        });
-        const latestVersion = versionsResponse.data?.[0];
-        if (!latestVersion?.forecast_id) {
-            return {
-                timeSeries: timeSeries.map(point => ({ ...point, price_da_forecast: null })),
-                forecastAvgPrice: null,
-                forecastAccuracy: null
-            };
-        }
-
-        const [forecastResponse, accuracyResponse] = await Promise.all([
-            apiClient.get<PriceForecastPoint[]>('/api/v1/price-forecast/data', {
-                params: { forecast_id: latestVersion.forecast_id, target_date: dateStr }
-            }),
-            apiClient.get<PriceForecastAccuracy | null>('/api/v1/price-forecast/accuracy', {
-                params: { forecast_id: latestVersion.forecast_id, target_date: dateStr }
-            })
-        ]);
-        const forecastMap = new Map(
-            (forecastResponse.data || []).map(item => [item.time, item.predicted_price ?? null])
-        );
-        const forecastValues = (forecastResponse.data || [])
-            .map(item => item.predicted_price)
-            .filter((value): value is number => value !== null && value !== undefined);
-        const forecastAvgPrice = forecastValues.length > 0
-            ? forecastValues.reduce((sum, value) => sum + value, 0) / forecastValues.length
-            : null;
-
-        return {
-            timeSeries: timeSeries.map(point => ({
-                ...point,
-                price_da_forecast: forecastMap.get(point.time_str) ?? null
-            })),
-            forecastAvgPrice,
-            forecastAccuracy: accuracyResponse.data?.wmape_accuracy ?? null
-        };
-    } catch (error) {
-        console.warn('加载日前价格预测曲线失败:', error);
-        return {
-            timeSeries: timeSeries.map(point => ({ ...point, price_da_forecast: null })),
-            forecastAvgPrice: null,
-            forecastAccuracy: null
-        };
-    }
-};
+type PriceSeriesKey = 'price_rt' | 'node_rt_price' | 'price_da' | 'price_econ';
 
 // 市场价格描述面板组件
 const MarketPriceSummaryPanel: React.FC<{
     financial_kpis: FinancialKPIs;
     risk_kpis: RiskKPIs;
     time_series: TimeSeriesPoint[];
-    forecast_avg_price?: number | null;
-    forecast_accuracy?: number | null;
-}> = ({ financial_kpis, risk_kpis, time_series, forecast_avg_price, forecast_accuracy }) => {
+}> = ({ financial_kpis, risk_kpis, time_series }) => {
     // 计算价格范围
     const rtPrices = time_series.filter(d => d.price_rt !== null).map(d => d.price_rt!);
     const daPrices = time_series.filter(d => d.price_da !== null).map(d => d.price_da!);
@@ -216,9 +140,7 @@ const MarketPriceSummaryPanel: React.FC<{
                     <Box component="span">
                         日前均价 {financial_kpis.vwap_da?.toFixed(2) || 'N/A'} 元/MWh (范围: {minDaPrice.toFixed(2)}~{maxDaPrice.toFixed(2)})，
                         实时均价 {financial_kpis.vwap_rt?.toFixed(2) || 'N/A'} 元/MWh (范围: {minRtPrice.toFixed(2)}~{maxRtPrice.toFixed(2)})，
-                        经济出清均价 {financial_kpis.twap_econ?.toFixed(2) || 'N/A'} 元/MWh (范围: {minEconPrice.toFixed(2)}~{maxEconPrice.toFixed(2)})，
-                        预测均价 {forecast_avg_price !== null && forecast_avg_price !== undefined ? forecast_avg_price.toFixed(2) : 'N/A'} 元/MWh，
-                        预测准确率 {forecast_accuracy !== null && forecast_accuracy !== undefined ? `${forecast_accuracy.toFixed(2)}%` : 'N/A'}
+                        经济出清均价 {financial_kpis.twap_econ?.toFixed(2) || 'N/A'} 元/MWh (范围: {minEconPrice.toFixed(2)}~{maxEconPrice.toFixed(2)})
                     </Box>
                 </Typography>
 
@@ -433,21 +355,43 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
     const chartRef = useRef<HTMLDivElement>(null);
     const hasPublishedRtPrice = data.some(point => point.price_rt !== null && point.price_rt !== undefined);
     const hasNodeRtPrice = data.some(point => point.node_rt_price !== null && point.node_rt_price !== undefined);
-    const showNodeRtPrice = !hasPublishedRtPrice && hasNodeRtPrice;
-    const { seriesVisibility, handleLegendClick } = useSelectableSeries<PriceSeriesKey>({
+    const [seriesVisibility, setSeriesVisibility] = useState<Record<PriceSeriesKey, boolean>>({
         price_rt: true,
-        node_rt_price: true,
+        node_rt_price: false,
         price_da: false,
-        price_da_forecast: false,
         price_econ: true
     });
+
+    useEffect(() => {
+        setSeriesVisibility({
+            price_rt: true,
+            node_rt_price: !hasPublishedRtPrice && hasNodeRtPrice,
+            price_da: false,
+            price_econ: true
+        });
+    }, [dateStr, hasPublishedRtPrice, hasNodeRtPrice]);
+
+    const handleLegendClick = (dataKey: PriceSeriesKey) => {
+        if (!dataKey) return;
+        setSeriesVisibility(prev => (
+            Object.prototype.hasOwnProperty.call(prev, dataKey)
+                ? { ...prev, [dataKey]: !prev[dataKey] }
+                : prev
+        ));
+    };
+
+    const legendItems: Array<{ key: PriceSeriesKey; label: string; color: string }> = [
+        ...(hasPublishedRtPrice ? [{ key: 'price_rt' as const, label: '实时价格', color: '#f44336' }] : []),
+        ...(hasNodeRtPrice ? [{ key: 'node_rt_price' as const, label: '节点实时价格', color: '#ff1f1f' }] : []),
+        { key: 'price_da', label: '日前价格', color: '#2196f3' },
+        { key: 'price_econ', label: '经济出清价', color: '#ff9800' },
+    ];
 
     // 计算Y轴范围
     const prices = data.flatMap(d => [
         seriesVisibility.price_rt ? d.price_rt : null,
-        showNodeRtPrice && seriesVisibility.node_rt_price ? d.node_rt_price ?? null : null,
+        seriesVisibility.node_rt_price ? d.node_rt_price ?? null : null,
         seriesVisibility.price_da ? d.price_da : null,
-        seriesVisibility.price_da_forecast ? d.price_da_forecast : null,
         seriesVisibility.price_econ ? d.price_econ : null
     ].filter(p => p !== null) as number[]);
     const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
@@ -460,15 +404,6 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
         : null;
     const minRtPoint = rtPrices.length > 0
         ? rtPrices.reduce((prev, curr) => (curr.price_rt! < prev.price_rt! ? curr : prev))
-        : null;
-
-    // 计算日前价格的最大最小值点
-    const daPrices = data.filter(d => d.price_da !== null);
-    const maxDaPoint = daPrices.length > 0
-        ? daPrices.reduce((prev, curr) => (curr.price_da! > prev.price_da! ? curr : prev))
-        : null;
-    const minDaPoint = daPrices.length > 0
-        ? daPrices.reduce((prev, curr) => (curr.price_da! < prev.price_da! ? curr : prev))
         : null;
 
     const { TouPeriodAreas } = useTouPeriodBackground(data);
@@ -526,7 +461,50 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
                                 tick={{ fontSize: 12 }}
                             />
                             <Tooltip content={<CustomTooltipContent unit="元/MWh" />} />
-                            <Legend onClick={handleLegendClick} />
+                            <Legend
+                                content={() => (
+                                    <Box
+                                        sx={{
+                                            display: 'flex',
+                                            flexWrap: 'wrap',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 2,
+                                            pt: 1,
+                                        }}
+                                    >
+                                        {legendItems.map((item) => {
+                                            const active = seriesVisibility[item.key];
+                                            return (
+                                                <Box
+                                                    key={item.key}
+                                                    onClick={() => handleLegendClick(item.key)}
+                                                    sx={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 0.75,
+                                                        cursor: 'pointer',
+                                                        color: active ? 'text.primary' : 'text.disabled',
+                                                        userSelect: 'none',
+                                                    }}
+                                                >
+                                                    <Box
+                                                        sx={{
+                                                            width: 18,
+                                                            height: 0,
+                                                            borderTop: `3px solid ${item.color}`,
+                                                            opacity: active ? 1 : 0.35,
+                                                        }}
+                                                    />
+                                                    <Typography variant="body2">
+                                                        {item.label}
+                                                    </Typography>
+                                                </Box>
+                                            );
+                                        })}
+                                    </Box>
+                                )}
+                            />
                             <Line
                                 type="monotone"
                                 dataKey="price_rt"
@@ -536,7 +514,7 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
                                 dot={false}
                                 hide={!seriesVisibility.price_rt || !hasPublishedRtPrice}
                             />
-                            {showNodeRtPrice && (
+                            {hasNodeRtPrice && (
                                 <Line
                                     type="monotone"
                                     dataKey="node_rt_price"
@@ -558,16 +536,6 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
                                 name="日前价格"
                                 dot={false}
                                 hide={!seriesVisibility.price_da}
-                            />
-                            <Line
-                                type="monotone"
-                                dataKey="price_da_forecast"
-                                stroke="#9c27b0"
-                                strokeWidth={2}
-                                strokeDasharray="8 4"
-                                name="日前价格预测"
-                                dot={false}
-                                hide={!seriesVisibility.price_da_forecast}
                             />
                             <Line
                                 type="monotone"
@@ -618,43 +586,6 @@ const PriceChart: React.FC<{ data: TimeSeriesPoint[]; dateStr: string; onDateShi
                                 />
                             )}
 
-                            {/* 日前价格最大值标注 */}
-                            {maxDaPoint && (
-                                <ReferenceDot
-                                    x={maxDaPoint.time_str}
-                                    y={maxDaPoint.price_da!}
-                                    r={6}
-                                    fill="#2196f3"
-                                    stroke="#fff"
-                                    strokeWidth={2}
-                                    label={{
-                                        value: maxDaPoint.price_da!.toFixed(2),
-                                        position: 'top',
-                                        fill: '#2196f3',
-                                        fontSize: 12,
-                                        fontWeight: 'bold'
-                                    }}
-                                />
-                            )}
-
-                            {/* 日前价格最小值标注 */}
-                            {minDaPoint && (
-                                <ReferenceDot
-                                    x={minDaPoint.time_str}
-                                    y={minDaPoint.price_da!}
-                                    r={6}
-                                    fill="#2196f3"
-                                    stroke="#fff"
-                                    strokeWidth={2}
-                                    label={{
-                                        value: minDaPoint.price_da!.toFixed(2),
-                                        position: 'bottom',
-                                        fill: '#2196f3',
-                                        fontSize: 12,
-                                        fontWeight: 'bold'
-                                    }}
-                                />
-                            )}
                         </LineChart>
                     </ResponsiveContainer>
                 </Box>
@@ -965,24 +896,22 @@ export const MarketDashboardTab: React.FC<MarketDashboardTabProps> = ({ selected
         systematic_bias: [],
         price_distribution: []
     });
-
-    // 数据缓存
-    const [cachedDate, setCachedDate] = useState<string | null>(null);
-    const [cachedData, setCachedData] = useState<DashboardData | null>(null);
-    const [cachedSpreadDate, setCachedSpreadDate] = useState<string | null>(null);
-    const [cachedSpreadData, setCachedSpreadData] = useState<SpreadAnalysisData | null>(null);
+    const dashboardCacheRef = useRef<Map<string, DashboardData>>(new Map());
+    const spreadCacheRef = useRef<Map<string, SpreadAnalysisData>>(new Map());
 
     // 加载Dashboard数据(带缓存)
     useEffect(() => {
         if (!selectedDate) return;
+        const controller = new AbortController();
+        let active = true;
 
         const fetchData = async () => {
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
+            const cachedDashboard = dashboardCacheRef.current.get(dateStr);
 
-            // 检查缓存
-            if (cachedDate === dateStr && cachedData) {
-                console.log('使用缓存数据:', dateStr);
-                setData(cachedData);
+            if (cachedDashboard) {
+                setData(cachedDashboard);
+                setError(null);
                 return;
             }
 
@@ -990,18 +919,14 @@ export const MarketDashboardTab: React.FC<MarketDashboardTabProps> = ({ selected
             setError(null);
             try {
                 const response = await apiClient.get<DashboardData>('/api/v1/market-analysis/dashboard', {
-                    params: { date_str: dateStr }
+                    params: { date_str: dateStr },
+                    signal: controller.signal,
                 });
-
-                // 数据验证
-                const forecastResult = await mergeForecastIntoTimeSeries(response.data.time_series || [], dateStr);
-                const mergedData: DashboardData = {
-                    ...response.data,
-                    time_series: forecastResult.timeSeries,
-                    forecast_avg_price: forecastResult.forecastAvgPrice,
-                    forecast_accuracy: forecastResult.forecastAccuracy
-                };
-                const timeSeriesData = mergedData.time_series;
+                if (!active) {
+                    return;
+                }
+                const nextData = response.data;
+                const timeSeriesData = nextData.time_series;
                 if (timeSeriesData && timeSeriesData.length > 0) {
                     const firstPoint = timeSeriesData[0];
                     if (firstPoint.time_str !== '00:15') {
@@ -1012,11 +937,15 @@ export const MarketDashboardTab: React.FC<MarketDashboardTabProps> = ({ selected
                     }
                 }
 
-                setData(mergedData);
-                // 更新缓存
-                setCachedDate(dateStr);
-                setCachedData(mergedData);
+                setData(nextData);
+                dashboardCacheRef.current.set(dateStr, nextData);
             } catch (err: any) {
+                if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') {
+                    return;
+                }
+                if (!active) {
+                    return;
+                }
                 if (typeof err.response?.data?.detail === 'string') {
                     setError(err.response.data.detail);
                 } else if (err instanceof Error) {
@@ -1027,43 +956,62 @@ export const MarketDashboardTab: React.FC<MarketDashboardTabProps> = ({ selected
                     setError('加载数据失败，发生未知错误');
                 }
             } finally {
-                setLoading(false);
+                if (active) {
+                    setLoading(false);
+                }
             }
         };
 
-        fetchData();
-    }, [selectedDate, cachedDate, cachedData]);
+        void fetchData();
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [selectedDate]);
 
     // 加载价差归因数据(带缓存)
     useEffect(() => {
         if (!selectedDate) return;
+        const controller = new AbortController();
+        let active = true;
 
         const fetchSpreadData = async () => {
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
+            const cachedSpread = spreadCacheRef.current.get(dateStr);
 
-            // 检查缓存
-            if (cachedSpreadDate === dateStr && cachedSpreadData) {
-                console.log('使用缓存价差数据:', dateStr);
-                setSpreadData(cachedSpreadData);
+            if (cachedSpread) {
+                setSpreadData(cachedSpread);
                 return;
             }
 
             try {
                 const response = await apiClient.get('/api/v1/market-analysis/spread-attribution', {
-                    params: { date: dateStr }
+                    params: { date: dateStr },
+                    signal: controller.signal,
                 });
+                if (!active) {
+                    return;
+                }
                 setSpreadData(response.data);
-                // 更新缓存
-                setCachedSpreadDate(dateStr);
-                setCachedSpreadData(response.data);
-            } catch (err) {
+                spreadCacheRef.current.set(dateStr, response.data);
+            } catch (err: any) {
+                if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') {
+                    return;
+                }
+                if (!active) {
+                    return;
+                }
                 console.error('Error fetching spread analysis data:', err);
                 setSpreadData({ time_series: [], systematic_bias: [], price_distribution: [] });
             }
         };
 
-        fetchSpreadData();
-    }, [selectedDate, cachedSpreadDate, cachedSpreadData]);
+        void fetchSpreadData();
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [selectedDate]);
 
     return (
         <Box>
@@ -1104,8 +1052,6 @@ export const MarketDashboardTab: React.FC<MarketDashboardTabProps> = ({ selected
                         financial_kpis={data.financial_kpis}
                         risk_kpis={data.risk_kpis}
                         time_series={data.time_series}
-                        forecast_avg_price={data.forecast_avg_price}
-                        forecast_accuracy={data.forecast_accuracy}
                     />
 
                     <Grid container spacing={{ xs: 1, sm: 2 }} sx={{ mt: 2 }}>

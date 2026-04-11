@@ -246,12 +246,11 @@ def get_market_dashboard(date_str: str = Query(..., description="查询日期, �
         )
 
         node_price_map: Dict[str, float] = {}
-        if not has_rt_published:
-            node_daily_doc = NODE_SPOT_PRICE_DAILY_COLLECTION.find_one(
-                {"node_name": DEFAULT_NODE_SPOT_PRICE_NAME, "date": date_str},
-                {"_id": 0, "points": 1}
-            )
-            node_price_map = _build_node_15m_price_map((node_daily_doc or {}).get("points", []))
+        node_daily_doc = NODE_SPOT_PRICE_DAILY_COLLECTION.find_one(
+            {"node_name": DEFAULT_NODE_SPOT_PRICE_NAME, "date": date_str},
+            {"_id": 0, "points": 1}
+        )
+        node_price_map = _build_node_15m_price_map((node_daily_doc or {}).get("points", []))
 
         start_of_day = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_day = start_of_day + timedelta(days=1)
@@ -337,7 +336,7 @@ def get_market_dashboard(date_str: str = Query(..., description="查询日期, �
             da_price = _safe_finite_float(da_doc.get('avg_clearing_price'))
             da_volume = _safe_finite_float(da_doc.get('total_clearing_power')) or 0.0
             rt_price = _safe_finite_float(rt_doc.get('avg_clearing_price'))
-            node_rt_price = node_price_map.get(time_str) if not has_rt_published else None
+            node_rt_price = node_price_map.get(time_str)
             rt_volume = _safe_finite_float(rt_doc.get('total_clearing_power')) or 0.0
             rt_wind = _safe_finite_float(rt_doc.get('wind_clearing_power')) or 0.0
             rt_solar = _safe_finite_float(rt_doc.get('solar_clearing_power')) or 0.0
