@@ -25,6 +25,7 @@ class AlertItem(BaseModel):
     category: str
     title: str
     content: str
+    detail_content: Optional[str] = None
     status: str
     service_type: Optional[str] = None
     task_type: Optional[str] = None

@@ -59,6 +59,7 @@ interface AlertItem {
     category: string;
     title: string;
     content: string;
+    detail_content?: string;
     status: string;
     service_type?: string;
     task_type: string;
@@ -68,6 +69,10 @@ interface AlertItem {
     resolved_by?: string;
     resolution_note?: string;
 }
+
+const isAlertItem = (value: any): value is AlertItem => {
+    return Boolean(value && typeof value === 'object' && 'alert_id' in value && 'level' in value && 'title' in value);
+};
 
 interface TaskLogItem {
     task_id: string;
@@ -475,8 +480,8 @@ export const SystemLogsPage: React.FC = () => {
                                 </TableCell>
                                 <TableCell sx={{ fontWeight: 'medium' }}>{alert.title}</TableCell>
                                 <TableCell sx={{ maxWidth: 250 }}>
-                                    <Tooltip title={alert.content}>
-                                        <Typography noWrap variant="body2">{alert.content}</Typography>
+                                    <Tooltip title={alert.detail_content || alert.content}>
+                                        <Typography noWrap variant="body2">{alert.detail_content || alert.content}</Typography>
                                     </Tooltip>
                                 </TableCell>
                                 <TableCell>
@@ -1114,9 +1119,20 @@ export const SystemLogsPage: React.FC = () => {
                 <Dialog open={detailDialog.open} onClose={() => setDetailDialog({ open: false, title: '', content: null })} maxWidth="md" fullWidth>
                     <DialogTitle>{detailDialog.title}</DialogTitle>
                     <DialogContent>
-                        <Box component="pre" sx={{ bgcolor: 'grey.100', p: 2, borderRadius: 1, overflow: 'auto', fontSize: '0.875rem', maxHeight: '60vh' }}>
-                            {JSON.stringify(detailDialog.content, null, 2)}
-                        </Box>
+                        {isAlertItem(detailDialog.content) ? (
+                            <Box sx={{ bgcolor: 'grey.100', p: 2, borderRadius: 1, maxHeight: '60vh', overflow: 'auto' }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                                    {detailDialog.content.title}
+                                </Typography>
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                                    {detailDialog.content.detail_content || detailDialog.content.content || '暂无告警详情'}
+                                </Typography>
+                            </Box>
+                        ) : (
+                            <Box component="pre" sx={{ bgcolor: 'grey.100', p: 2, borderRadius: 1, overflow: 'auto', fontSize: '0.875rem', maxHeight: '60vh' }}>
+                                {JSON.stringify(detailDialog.content, null, 2)}
+                            </Box>
+                        )}
                     </DialogContent>
                     <DialogActions>
                         <Button onClick={() => setDetailDialog({ open: false, title: '', content: null })}>关闭</Button>

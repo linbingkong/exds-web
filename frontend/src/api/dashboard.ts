@@ -88,6 +88,7 @@ export interface DashboardAlertItem {
     level: string;
     title: string;
     content: string;
+    detail_content?: string;
     status: string;
     created_at: string;
     link?: string | null;

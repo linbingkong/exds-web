@@ -703,6 +703,7 @@ class DashboardService:
                     "level": str(doc.get("level") or "P3"),
                     "title": str(doc.get("title") or "系统告警"),
                     "content": str(doc.get("content") or ""),
+                    "detail_content": str(doc.get("detail_content") or doc.get("content") or ""),
                     "status": str(doc.get("status") or "ACTIVE"),
                     "created_at": created_at,
                     "link": "/system-settings/system-logs",

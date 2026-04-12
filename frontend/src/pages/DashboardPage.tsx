@@ -1053,22 +1053,9 @@ export const DashboardPage: React.FC = () => {
         <DashboardPanel title="异常告警" icon={<NotificationsActiveOutlinedIcon fontSize="small" />}>
             {state.alerts?.items?.length ? (
                 <Stack spacing={1} sx={{ height: { xs: 'auto', md: '100%' }, overflow: 'auto', pr: 0.5 }}>
-                    {state.alerts.items.map((item: DashboardAlertItem) => (
-                        <Tooltip
-                            key={`${item.source}-${item.alert_id}`}
-                            title={
-                                <Box sx={{ maxWidth: 360 }}>
-                                    <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
-                                        {item.title}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-                                        {item.content || '暂无告警详情'}
-                                    </Typography>
-                                </Box>
-                            }
-                            placement="left-start"
-                            arrow
-                        >
+                    {state.alerts.items.map((item: DashboardAlertItem) => {
+                        const alertSummaryText = item.content || '暂无告警详情';
+                        const alertCard = (
                             <Box
                                 sx={{
                                     border: '1px solid',
@@ -1085,27 +1072,91 @@ export const DashboardPage: React.FC = () => {
                                     },
                                 }}
                             >
-                                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 1, alignItems: 'center' }}>
-                                    <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap>
+                                <Box
+                                    sx={{
+                                        display: 'grid',
+                                        gridTemplateColumns: isMobile ? '1fr auto' : '1fr auto auto',
+                                        gap: 1,
+                                        alignItems: 'center',
+                                    }}
+                                >
+                                    <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap={!isMobile}>
                                         {item.title}
                                     </Typography>
                                     <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
                                         {formatAlertTime(item.created_at)}
                                     </Typography>
-                                    <Typography
-                                        variant="caption"
-                                        sx={{
-                                            color: getAlertLevelColor(item.level),
-                                            fontWeight: 800,
-                                            whiteSpace: 'nowrap',
-                                        }}
-                                    >
-                                        {item.level || '--'}
-                                    </Typography>
+                                    {!isMobile && (
+                                        <Typography
+                                            variant="caption"
+                                            sx={{
+                                                color: getAlertLevelColor(item.level),
+                                                fontWeight: 800,
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {item.level || '--'}
+                                        </Typography>
+                                    )}
                                 </Box>
+                                {isMobile && (
+                                    <>
+                                        <Typography
+                                            variant="caption"
+                                            sx={{
+                                                mt: 0.75,
+                                                color: getAlertLevelColor(item.level),
+                                                fontWeight: 800,
+                                                display: 'block',
+                                            }}
+                                        >
+                                            {item.level || '--'}
+                                        </Typography>
+                                        <Typography
+                                            variant="body2"
+                                            color="text.secondary"
+                                            sx={{
+                                                mt: 0.5,
+                                                whiteSpace: 'pre-wrap',
+                                                lineHeight: 1.6,
+                                                wordBreak: 'break-all',
+                                            }}
+                                        >
+                                            {alertSummaryText}
+                                        </Typography>
+                                    </>
+                                )}
                             </Box>
-                        </Tooltip>
-                    ))}
+                        );
+
+                        if (isMobile) {
+                            return (
+                                <Box key={`${item.source}-${item.alert_id}`}>
+                                    {alertCard}
+                                </Box>
+                            );
+                        }
+
+                        return (
+                            <Tooltip
+                                key={`${item.source}-${item.alert_id}`}
+                                title={
+                                    <Box sx={{ maxWidth: 360 }}>
+                                        <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                                            {item.title}
+                                        </Typography>
+                                        <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                                            {alertSummaryText}
+                                        </Typography>
+                                    </Box>
+                                }
+                                placement="left-start"
+                                arrow
+                            >
+                                {alertCard}
+                            </Tooltip>
+                        );
+                    })}
                 </Stack>
             ) : (
                 <Box

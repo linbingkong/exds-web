@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Set
 from bson import ObjectId
 
-from webapp.tools.mongo import DATABASE, get_config
+from webapp.tools.mongo import DATABASE
 from webapp.scheduler.logger import TaskLogger
 from webapp.services.contract_service import ContractService
 from webapp.services.load_aggregation_service import LoadAggregationService
@@ -132,24 +132,10 @@ async def event_driven_load_aggregation_job():
     事件驱动的负荷数据聚合任务
     
     触发频率: 每5分钟检查一次 RPA 下载状态
-    执行策略: 每天只执行一次 (使用内存缓存优化)
+    执行策略: 每天00:00起开始检查, 且每天只执行一次 (使用内存缓存优化)
     """
     try:
         now = datetime.now()
-        # 优化：RPA 任务通常在凌晨 6 点后完成，此前无需频繁查询数据库
-        # 配置化：从 [SCHEDULE].run_times 读取第一个时间点作为开始时间
-        # 示例 run_times = 06:00,09:10,12:00,21:00 -> 取 06:00 -> 6点
-        run_times_str = get_config("SCHEDULE", "run_times", "06:00")
-        try:
-            first_time = run_times_str.split(',')[0].strip()
-            start_hour = int(first_time.split(':')[0])
-        except Exception as e:
-            logger.warning(f"解析 [SCHEDULE].run_times 失败: {run_times_str}, 使用默认值 6. Error: {e}")
-            start_hour = 6
-        
-        if now.hour < start_hour:
-            # logger.debug(f"当前时间早于 {start_hour}:00, 跳过聚合任务")
-            return
 
         today = now.strftime("%Y-%m-%d")
         
@@ -188,8 +174,9 @@ async def event_driven_load_aggregation_job():
             await _create_alert(
                 level="P1",
                 category="DATA_QUALITY",
-                title="计量点缺失告警",
+                title=f"计量点缺失({mp_alert_analysis['data_date']})",
                 content=_build_missing_mp_alert_content(mp_alert_analysis),
+                detail_content=_build_missing_mp_alert_detail_content(mp_alert_analysis),
             )
         if mp_alert_analysis.get("increase_alert_needed"):
             await _create_alert(
@@ -387,10 +374,16 @@ async def _get_active_customer_context(date_str: str) -> Dict[str, Any]:
     account_ids = set()
     archive_mp_ids = set()
     customer_mp_map = {}
+    mp_customer_map = {}
     for item in archive_items:
         account_ids.update(item["account_ids"])
         archive_mp_ids.update(item["mp_ids"])
         customer_mp_map[item["customer_id"]] = item["mp_ids"]
+        for mp_id in item["mp_ids"]:
+            mp_customer_map[mp_id] = {
+                "customer_id": item["customer_id"],
+                "customer_name": item["customer_name"],
+            }
 
     return {
         "active_customers": active_customers,
@@ -399,6 +392,7 @@ async def _get_active_customer_context(date_str: str) -> Dict[str, Any]:
         "account_ids": account_ids,
         "archive_mp_ids": archive_mp_ids,
         "customer_mp_map": customer_mp_map,
+        "mp_customer_map": mp_customer_map,
     }
 
 
@@ -451,6 +445,13 @@ def _get_latest_available_data_date(before_date: str) -> str | None:
     previous_dates = DATABASE["raw_mp_data"].distinct("date", {"date": {"$lt": before_date}})
     previous_dates = [date for date in previous_dates if isinstance(date, str)]
     return max(previous_dates) if previous_dates else None
+
+
+def _to_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[str, Any]) -> Dict[str, Any]:
@@ -531,6 +532,35 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
             if _has_non_zero_load(doc):
                 missing_mp_recent_activity[mp_id].append(doc["date"])
 
+    affected_customer_ids: Set[str] = set()
+    affected_customer_names: Set[str] = set()
+    for mp_id in effective_missing_mps:
+        customer_info = context["mp_customer_map"].get(mp_id) or {}
+        customer_id = str(customer_info.get("customer_id") or "").strip()
+        customer_name = str(customer_info.get("customer_name") or "").strip()
+        if customer_id:
+            affected_customer_ids.add(customer_id)
+        if customer_name:
+            affected_customer_names.add(customer_name)
+
+    missing_mp_latest_energy_map: Dict[str, Dict[str, Any]] = {}
+    missing_mp_estimated_energy_mwh = 0.0
+    if effective_missing_mps:
+        latest_energy_docs = list(raw_mp_data.find(
+            {"date": {"$lt": data_date}, "mp_id": {"$in": effective_missing_mps}},
+            {"_id": 0, "date": 1, "mp_id": 1, "total_load": 1}
+        ).sort([("mp_id", 1), ("date", -1)]))
+        for doc in latest_energy_docs:
+            mp_id = str(doc.get("mp_id") or "").strip()
+            if not mp_id or mp_id in missing_mp_latest_energy_map:
+                continue
+            total_load = _to_float(doc.get("total_load"))
+            missing_mp_latest_energy_map[mp_id] = {
+                "date": doc.get("date"),
+                "total_load": total_load,
+            }
+            missing_mp_estimated_energy_mwh += total_load
+
     added_mp_not_in_archive = sorted(mp_id for mp_id in added_mps if mp_id not in context["archive_mp_ids"])
     added_mp_in_archive = sorted(mp_id for mp_id in added_mps if mp_id in context["archive_mp_ids"])
 
@@ -545,6 +575,10 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
         "missing_mps": missing_mps,
         "effective_missing_mps": effective_missing_mps,
         "missing_mp_recent_activity": {k: sorted(v) for k, v in missing_mp_recent_activity.items()},
+        "mp_customer_map": context["mp_customer_map"],
+        "affected_customer_count": len(affected_customer_ids) or len(affected_customer_names),
+        "missing_mp_latest_energy_map": missing_mp_latest_energy_map,
+        "missing_mp_estimated_energy_mwh": round(missing_mp_estimated_energy_mwh, 4),
         "added_mps": added_mps,
         "added_mp_not_in_archive": added_mp_not_in_archive,
         "added_mp_in_archive": added_mp_in_archive,
@@ -560,12 +594,49 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
 
 def _build_missing_mp_alert_content(analysis: Dict[str, Any]) -> str:
     return (
-        f"{analysis['data_date']} 计量点数据发布数量缺失："
-        f"基准 {analysis['expected_mps_count']} 个（参考 {analysis.get('expected_reference_date') or '无'}），"
-        f"当天 {analysis['actual_mps_count']} 个。"
-        f"缺失有效计量点 {len(analysis['effective_missing_mps'])} 个。"
-        f"{' 检测到跨月客户变动，基准已按当前档案修正。' if analysis.get('customer_change_detected') else ''}"
+        f"{analysis['data_date']} 负荷数据下载发现计量点数量缺失："
+        f"基准值{analysis['expected_mps_count']}个，当日 {analysis['actual_mps_count']} 个。"
+        f"缺失有效计量点 {len(analysis['effective_missing_mps'])} 个，"
+        f"涉及用户 {analysis.get('affected_customer_count', 0)} 户，"
+        f"涉及电量少计 {analysis.get('missing_mp_estimated_energy_mwh', 0.0):.2f}MWh"
     )
+
+
+def _build_missing_mp_alert_detail_content(analysis: Dict[str, Any]) -> str:
+    lines = [
+        f"告警日期：{analysis['data_date']}",
+        f"基准计量点数：{analysis['expected_mps_count']} 个",
+        f"当日计量点数：{analysis['actual_mps_count']} 个",
+        f"缺失有效计量点：{len(analysis['effective_missing_mps'])} 个",
+        f"涉及用户：{analysis.get('affected_customer_count', 0)} 户",
+        f"涉及电量少计：{analysis.get('missing_mp_estimated_energy_mwh', 0.0):.2f}MWh",
+        "",
+        "缺失明细：",
+    ]
+
+    customer_groups: Dict[str, Dict[str, Any]] = {}
+    missing_mps = analysis.get("effective_missing_mps") or []
+    mp_customer_map = analysis.get("mp_customer_map") or {}
+    for mp_id in missing_mps:
+        customer_info = mp_customer_map.get(mp_id) or {}
+        customer_id = str(customer_info.get("customer_id") or "").strip() or "UNKNOWN"
+        customer_name = str(customer_info.get("customer_name") or "").strip() or "未知用户"
+        group = customer_groups.setdefault(
+            customer_id,
+            {"customer_name": customer_name, "mp_ids": []},
+        )
+        group["mp_ids"].append(mp_id)
+
+    if not customer_groups:
+        lines.append("未提取到缺失计量点明细。")
+        return "\n".join(lines)
+
+    for index, (_, group) in enumerate(sorted(customer_groups.items(), key=lambda item: item[1]["customer_name"]), start=1):
+        lines.append(f"{index}. 用户：{group['customer_name']}")
+        lines.append(f"缺失计量点：{'、'.join(sorted(group['mp_ids']))}")
+        lines.append("")
+
+    return "\n".join(line for line in lines if line is not None).strip()
 
 
 def _build_increase_mp_alert_content(analysis: Dict[str, Any]) -> str:
@@ -585,7 +656,7 @@ def _build_increase_mp_alert_content(analysis: Dict[str, Any]) -> str:
     return "".join(fragments)
 
 
-async def _create_alert(level: str, category: str, title: str, content: str):
+async def _create_alert(level: str, category: str, title: str, content: str, detail_content: str | None = None):
     """创建系统告警"""
     import uuid
     
@@ -599,6 +670,7 @@ async def _create_alert(level: str, category: str, title: str, content: str):
         "category": category,
         "title": title,
         "content": content,
+        "detail_content": detail_content or content,
         "service_type": "web",
         "task_type": "load_aggregation",
         "status": "ACTIVE",

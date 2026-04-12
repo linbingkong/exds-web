@@ -115,7 +115,9 @@ class DashboardSnapshotService:
         contribution = snapshot_data.get("customer_profit_contribution") or {}
         positive = contribution.get("positive_contribution") or {}
         negative = contribution.get("negative_contribution") or {}
-        return "customer_count" in positive and "customer_count" in negative
+        alerts = (snapshot_data.get("alerts") or {}).get("items") or []
+        alerts_ready = all("detail_content" in item for item in alerts)
+        return "customer_count" in positive and "customer_count" in negative and alerts_ready
 
     def _to_summary_response(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
         data = snapshot.get("data") or {}
