@@ -43,7 +43,7 @@ export const LoadDataAggregationDialog: React.FC<LoadDataAggregationDialogProps>
     // Stage
     const [stage, setStage] = useState<'config' | 'processing' | 'finished'>('config');
     const [mode, setMode] = useState<'incremental' | 'recalc'>('incremental');
-    const [dateRangeType, setDateRangeType] = useState<'all' | 'current_month' | 'current_year'>('all');
+    const [dateRangeType, setDateRangeType] = useState<'all' | 'last_month' | 'current_month' | 'current_year'>('all');
     const [deleteExisting, setDeleteExisting] = useState(false);
     const [result, setResult] = useState<{
         processed_customers: number;
@@ -144,7 +144,10 @@ export const LoadDataAggregationDialog: React.FC<LoadDataAggregationDialogProps>
 
                 if (mode === 'recalc' && dateRangeType !== 'all') {
                     const now = new Date();
-                    if (dateRangeType === 'current_month') {
+                    if (dateRangeType === 'last_month') {
+                        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+                        endDate = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+                    } else if (dateRangeType === 'current_month') {
                         startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
                         endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
                     } else if (dateRangeType === 'current_year') {
@@ -270,6 +273,7 @@ export const LoadDataAggregationDialog: React.FC<LoadDataAggregationDialogProps>
                             onChange={(e) => setDateRangeType(e.target.value as any)}
                         >
                             <FormControlLabel value="all" control={<Radio size="small" />} label="全部时间" />
+                            <FormControlLabel value="last_month" control={<Radio size="small" />} label="上月" />
                             <FormControlLabel value="current_month" control={<Radio size="small" />} label="本月" />
                             <FormControlLabel value="current_year" control={<Radio size="small" />} label="今年" />
                         </RadioGroup>
