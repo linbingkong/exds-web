@@ -182,8 +182,9 @@ async def event_driven_load_aggregation_job():
             await _create_alert(
                 level="P2",
                 category="DATA_QUALITY",
-                title="计量点增加告警",
+                title=f"计量点增加({mp_alert_analysis['data_date']})",
                 content=_build_increase_mp_alert_content(mp_alert_analysis),
+                detail_content=_build_increase_mp_alert_detail_content(mp_alert_analysis),
             )
         
     # 6. 记录成功
@@ -461,17 +462,17 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
         or execution_date
     )
     context = await _get_active_customer_context(execution_date)
-    history_dates = _get_recent_dates(execution_date, EXPECTED_MPS_LOOKBACK_DAYS)
+    history_dates = _get_recent_dates(data_date, EXPECTED_MPS_LOOKBACK_DAYS)
 
     daily_mp_sets: List[Dict[str, Any]] = []
     raw_mp_data = DATABASE["raw_mp_data"]
 
     for hist_date in history_dates:
-        docs = list(raw_mp_data.find({"date": hist_date}, {"_id": 0, "mp_id": 1, "meta": 1}))
+        docs = list(raw_mp_data.find({"date": hist_date}, {"_id": 0, "mp_id": 1}))
         mp_set = {
             str(doc.get("mp_id") or "").strip()
             for doc in docs
-            if _is_doc_belongs_to_active_customers(doc, context) and str(doc.get("mp_id") or "").strip()
+            if str(doc.get("mp_id") or "").strip()
         }
         daily_mp_sets.append({"date": hist_date, "mp_set": mp_set, "count": len(mp_set)})
 
@@ -482,19 +483,24 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
     )
     expected_mps = set(expected_entry["mp_set"])
 
-    trigger_dt = datetime.strptime(execution_date, "%Y-%m-%d")
-    prev_month_last_day = _get_prev_month_last_day(execution_date)
+    data_dt = datetime.strptime(data_date, "%Y-%m-%d")
+    prev_month_last_day = _get_prev_month_last_day(data_date)
     customer_change_detected = False
-    added_customer_ids: Set[str] = set()
-    removed_customer_ids: Set[str] = set()
-    if any(datetime.strptime(d, "%Y-%m-%d").month != trigger_dt.month for d in history_dates):
+    month_added_customer_ids: Set[str] = set()
+    month_removed_customer_ids: Set[str] = set()
+    if any(datetime.strptime(d, "%Y-%m-%d").month != data_dt.month for d in history_dates):
         prev_context = await _get_active_customer_context(prev_month_last_day)
-        added_customer_ids = context["customer_ids"] - prev_context["customer_ids"]
-        removed_customer_ids = prev_context["customer_ids"] - context["customer_ids"]
-        customer_change_detected = bool(added_customer_ids or removed_customer_ids)
-        if added_customer_ids:
-            for cid in added_customer_ids:
+        month_added_customer_ids = context["customer_ids"] - prev_context["customer_ids"]
+        month_removed_customer_ids = prev_context["customer_ids"] - context["customer_ids"]
+        customer_change_detected = bool(month_added_customer_ids or month_removed_customer_ids)
+
+        if month_added_customer_ids:
+            for cid in month_added_customer_ids:
                 expected_mps.update(context["customer_mp_map"].get(cid, set()))
+
+        if month_removed_customer_ids:
+            for cid in month_removed_customer_ids:
+                expected_mps.difference_update(prev_context["customer_mp_map"].get(cid, set()))
 
     today_docs = list(raw_mp_data.find({"date": data_date}, {"_id": 0, "mp_id": 1, "meta": 1, "total_load": 1, "load_values": 1}))
     actual_mps = {
@@ -502,20 +508,17 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
         for doc in today_docs
         if str(doc.get("mp_id") or "").strip()
     }
+    actual_active_mps = {
+        str(doc.get("mp_id") or "").strip()
+        for doc in today_docs
+        if _is_doc_belongs_to_active_customers(doc, context) and str(doc.get("mp_id") or "").strip()
+    }
 
     missing_mps = sorted(expected_mps - actual_mps)
     added_mps = sorted(actual_mps - expected_mps)
-
-    previous_available_date = _get_latest_available_data_date(data_date)
-    effective_missing_mps: List[str] = []
-    if previous_available_date:
-        previous_docs = list(raw_mp_data.find({"date": previous_available_date}, {"_id": 0, "mp_id": 1}))
-        previous_mps = {
-            str(doc.get("mp_id") or "").strip()
-            for doc in previous_docs
-            if str(doc.get("mp_id") or "").strip()
-        }
-        effective_missing_mps = sorted(previous_mps - actual_mps)
+    active_archive_mps = context["archive_mp_ids"]
+    effective_missing_mps = sorted(mp_id for mp_id in missing_mps if mp_id in active_archive_mps)
+    effective_added_mps = sorted(mp_id for mp_id in added_mps if mp_id in actual_active_mps and mp_id not in active_archive_mps)
 
     activity_dates = _get_recent_dates(data_date, MISSING_MP_ACTIVITY_LOOKBACK_DAYS)
     missing_mp_recent_activity: Dict[str, List[str]] = {}
@@ -543,6 +546,17 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
         if customer_name:
             affected_customer_names.add(customer_name)
 
+    added_customer_ids: Set[str] = set()
+    added_customer_names: Set[str] = set()
+    for mp_id in effective_added_mps:
+        customer_info = context["mp_customer_map"].get(mp_id) or {}
+        customer_id = str(customer_info.get("customer_id") or "").strip()
+        customer_name = str(customer_info.get("customer_name") or "").strip()
+        if customer_id:
+            added_customer_ids.add(customer_id)
+        if customer_name:
+            added_customer_names.add(customer_name)
+
     missing_mp_latest_energy_map: Dict[str, Dict[str, Any]] = {}
     missing_mp_estimated_energy_mwh = 0.0
     if effective_missing_mps:
@@ -564,7 +578,7 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
     added_mp_not_in_archive = sorted(mp_id for mp_id in added_mps if mp_id not in context["archive_mp_ids"])
     added_mp_in_archive = sorted(mp_id for mp_id in added_mps if mp_id in context["archive_mp_ids"])
 
-    baseline_available = bool(expected_entry["date"]) or customer_change_detected
+    baseline_available = bool(expected_entry["date"])
 
     return {
         "execution_date": execution_date,
@@ -580,26 +594,31 @@ async def _analyze_mp_publication_alerts(execution_date: str, rpa_record: Dict[s
         "missing_mp_latest_energy_map": missing_mp_latest_energy_map,
         "missing_mp_estimated_energy_mwh": round(missing_mp_estimated_energy_mwh, 4),
         "added_mps": added_mps,
+        "effective_added_mps": effective_added_mps,
+        "added_customer_count": len(added_customer_ids) or len(added_customer_names),
         "added_mp_not_in_archive": added_mp_not_in_archive,
         "added_mp_in_archive": added_mp_in_archive,
-        "previous_available_date": previous_available_date,
+        "previous_available_date": _get_latest_available_data_date(data_date),
         "baseline_available": baseline_available,
         "customer_change_detected": customer_change_detected,
-        "added_customer_count": len(added_customer_ids),
-        "removed_customer_count": len(removed_customer_ids),
+        "month_added_customer_count": len(month_added_customer_ids),
+        "removed_customer_count": len(month_removed_customer_ids),
         "missing_alert_needed": baseline_available and bool(effective_missing_mps),
-        "increase_alert_needed": baseline_available and len(actual_mps) > len(expected_mps) and bool(added_mps),
+        "increase_alert_needed": baseline_available and len(actual_mps) > len(expected_mps) and bool(effective_added_mps),
     }
 
 
 def _build_missing_mp_alert_content(analysis: Dict[str, Any]) -> str:
-    return (
+    content = (
         f"{analysis['data_date']} 负荷数据下载发现计量点数量缺失："
         f"基准值{analysis['expected_mps_count']}个，当日 {analysis['actual_mps_count']} 个。"
         f"缺失有效计量点 {len(analysis['effective_missing_mps'])} 个，"
         f"涉及用户 {analysis.get('affected_customer_count', 0)} 户，"
         f"涉及电量少计 {analysis.get('missing_mp_estimated_energy_mwh', 0.0):.2f}MWh"
     )
+    if analysis.get("customer_change_detected"):
+        content += " 说明：检测到月初客户变动，基准已按当前活跃客户档案修正。"
+    return content
 
 
 def _build_missing_mp_alert_detail_content(analysis: Dict[str, Any]) -> str:
@@ -613,6 +632,9 @@ def _build_missing_mp_alert_detail_content(analysis: Dict[str, Any]) -> str:
         "",
         "缺失明细：",
     ]
+    if analysis.get("customer_change_detected"):
+        lines.insert(6, "说明：检测到月初客户变动，基准已按当前活跃客户档案修正。")
+        lines.insert(7, "")
 
     customer_groups: Dict[str, Dict[str, Any]] = {}
     missing_mps = analysis.get("effective_missing_mps") or []
@@ -640,20 +662,54 @@ def _build_missing_mp_alert_detail_content(analysis: Dict[str, Any]) -> str:
 
 
 def _build_increase_mp_alert_content(analysis: Dict[str, Any]) -> str:
-    added_not_in_archive = analysis["added_mp_not_in_archive"][:10]
-    added_in_archive = analysis["added_mp_in_archive"][:10]
-    fragments = [
-        f"{analysis['execution_date']} 下载的 {analysis['data_date']} 计量点数据发布数量高于近{EXPECTED_MPS_LOOKBACK_DAYS}天基准；"
-        f"基准 {analysis['expected_mps_count']} 个（参考 {analysis.get('expected_reference_date') or '无'}），"
-        f"当天 {analysis['actual_mps_count']} 个。"
-        f"新增计量点共 {len(analysis['added_mps'])} 个。"
+    content = (
+        f"{analysis['data_date']} 负荷数据下载发现计量点数量增加："
+        f"基准值{analysis['expected_mps_count']}个，当日 {analysis['actual_mps_count']} 个。"
+        f"新增有效计量点 {len(analysis.get('effective_added_mps', []))} 个，"
+        f"涉及用户 {analysis.get('added_customer_count', 0)} 户。"
+    )
+    if analysis.get("customer_change_detected"):
+        content += " 说明：检测到月初客户变动，基准已按当前活跃客户档案修正。"
+    return content
+
+
+def _build_increase_mp_alert_detail_content(analysis: Dict[str, Any]) -> str:
+    lines = [
+        f"告警日期：{analysis['data_date']}",
+        f"基准计量点数：{analysis['expected_mps_count']} 个",
+        f"当日计量点数：{analysis['actual_mps_count']} 个",
+        f"新增有效计量点：{len(analysis.get('effective_added_mps', []))} 个",
+        f"涉及用户：{analysis.get('added_customer_count', 0)} 户",
+        "",
+        "增加明细：",
     ]
-    if added_not_in_archive:
-        fragments.append(f"未同步到档案的新增计量点示例：{'、'.join(added_not_in_archive)}。")
-    if added_in_archive:
-        fragments.append(f"已在档案但超出近期基准的计量点示例：{'、'.join(added_in_archive)}。")
-    fragments.append("请核查是否有用户新增电表或档案未及时同步。")
-    return "".join(fragments)
+    if analysis.get("customer_change_detected"):
+        lines.insert(5, "说明：检测到月初客户变动，基准已按当前活跃客户档案修正。")
+        lines.insert(6, "")
+
+    customer_groups: Dict[str, Dict[str, Any]] = {}
+    added_mps = analysis.get("effective_added_mps") or []
+    mp_customer_map = analysis.get("mp_customer_map") or {}
+    for mp_id in added_mps:
+        customer_info = mp_customer_map.get(mp_id) or {}
+        customer_id = str(customer_info.get("customer_id") or "").strip() or "UNKNOWN"
+        customer_name = str(customer_info.get("customer_name") or "").strip() or "未知用户"
+        group = customer_groups.setdefault(
+            customer_id,
+            {"customer_name": customer_name, "mp_ids": []},
+        )
+        group["mp_ids"].append(mp_id)
+
+    if not customer_groups:
+        lines.append("未提取到新增活跃计量点明细。")
+        return "\n".join(lines)
+
+    for index, (_, group) in enumerate(sorted(customer_groups.items(), key=lambda item: item[1]["customer_name"]), start=1):
+        lines.append(f"{index}. 用户：{group['customer_name']}")
+        lines.append(f"新增计量点：{'、'.join(sorted(group['mp_ids']))}")
+        lines.append("")
+
+    return "\n".join(line for line in lines if line is not None).strip()
 
 
 async def _create_alert(level: str, category: str, title: str, content: str, detail_content: str | None = None):

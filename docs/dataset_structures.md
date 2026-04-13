@@ -898,3 +898,53 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 ### 20.2 索引
 
 - `(month_str: 1, entity_name: 1)`: 唯一索引。
+
+
+## 25. `node_spot_price_daily` - 节点实时出清价格（日覆盖）
+
+该集合存储“节点实时现货出清价格”接口采集结果，采用**按日宽文档**结构。
+
+- **数据来源**: `rpa.pipelines.node_spot_price`
+- **更新频率**: 由 `task_schedule_configs` 配置，默认每 15 分钟覆盖一次
+- **业务规则**:
+  - 一条文档表示“一个节点 + 一个日期”
+  - 每次接口调用返回当天全部已发布点位，脚本按日整条覆盖
+  - 当天第一次成功执行时，会额外补采昨天一次，确保昨天数据完整
+
+### 25.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `node_name` | String | **[复合主键]** 节点名称。 |
+| `date` | String | **[复合主键]** 数据日期，格式 `YYYY-MM-DD`。 |
+| `points` | Array | 当天全部 5 分钟点位数组。 |
+| `points.time` | String | 时刻点，格式 `HH:MM`。 |
+| `points.cq_price` | Number | 出清价格。 |
+| `points.fl_energy_price` | Number | 分量电价。 |
+| `points.fl_zs_price` | Number | 分量阻塞电价。 |
+| `points.losses` | String | 线损信息，如“无”。 |
+
+### 25.2. 索引
+
+- `(node_name: 1, date: 1)`: 唯一复合索引。
+
+---
+
+## 26. `node_spot_price_targets` - 节点实时出清价格采集目标
+
+该集合存储需要采集的节点名单。
+
+- **数据来源**: 系统初始化默认写入 + 手工维护
+- **默认节点**: `凌云站/500kV.Ⅰ母`
+
+### 26.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `node_name` | String | **[主键]** 节点名称。 |
+| `enabled` | Boolean | 是否启用采集。 |
+
+### 26.2. 索引
+
+- `(node_name: 1)`: 唯一索引。
+- `(enabled: 1, node_name: 1)`: 普通复合索引。
