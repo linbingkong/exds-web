@@ -2,11 +2,14 @@
 from datetime import datetime
 from typing import Any, Optional
 
+from bson import ObjectId
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from webapp.models.settlement import SettlementVersion
 from webapp.services.retail_monthly_settlement_service import RetailMonthlySettlementService
+from webapp.services.retail_price_service import retail_price_service
 from webapp.services.retail_settlement_service import RetailSettlementService
 from webapp.api.dependencies.authz import require_permission, CurrentUserContext
 from webapp.api.masking import mask_response_for_user
@@ -184,5 +187,35 @@ def get_monthly_customer_detail(
     doc = monthly_service.db[monthly_service.CUSTOMER_COLLECTION].find_one(query)
     if not doc:
         return ResponseModel(code=404, message="未找到该客户月度结算数据", data=None)
+
+    contract_id = doc.get("contract_id")
+    package = None
+    if contract_id:
+        try:
+            query_id = ObjectId(contract_id) if isinstance(contract_id, str) and len(contract_id) == 24 else contract_id
+            contract = monthly_service.db.retail_contracts.find_one({"_id": query_id})
+            if contract and contract.get("package_id"):
+                package_id = contract["package_id"]
+                package_query_id = ObjectId(package_id) if isinstance(package_id, str) and len(package_id) == 24 else package_id
+                package = monthly_service.db.retail_packages.find_one({"_id": package_query_id})
+        except Exception:
+            package = None
+
+    if not package and doc.get("package_name"):
+        package = monthly_service.db.retail_packages.find_one({"package_name": doc["package_name"]})
+
+    if package:
+        doc["pricing_config"] = package.get("pricing_config", {})
+
+        price_model = doc.get("price_model") or {}
+        ref_price = price_model.get("reference_price") or {}
+        ref_type = ref_price.get("type")
+        if ref_type:
+            corrected_base = retail_price_service.get_monthly_base_price(month, ref_type)
+            if corrected_base is not None and corrected_base > 0:
+                ref_price["base_value"] = float(corrected_base)
+                price_model["reference_price"] = ref_price
+                doc["price_model"] = price_model
+
     doc["_id"] = str(doc["_id"])
     return ResponseModel(data=mask_response_for_user(doc, ctx))

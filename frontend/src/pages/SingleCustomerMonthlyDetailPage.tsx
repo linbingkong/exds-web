@@ -210,6 +210,8 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
 
     const cd = data;
     const pm = cd.price_model || {};
+    const pricingConfig = cd.pricing_config || {};
+    const linkedCfg = pm.linked_config || null;
     const finalPrices = pm.final_prices || {};
 
     // 提取核心指标（最终阶段）
@@ -282,6 +284,11 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
 
     // 联动配置
     const refPrice = pm.reference_price || null;
+    const linkedTargetLabel: Record<string, string> = {
+        'real_time_avg': '实时市场均价',
+        'day_ahead_avg': '日前市场均价',
+        'grid_agency_price': '电网代理购电价',
+    };
 
     return (
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
@@ -387,6 +394,50 @@ const SingleCustomerMonthlyDetailPage: React.FC<{
                                         <Box sx={{ px: 0.8, py: 0.1, bgcolor: 'primary.50', color: 'primary.dark', border: '1px solid', borderColor: 'primary.100', borderRadius: 0.5, fontSize: '10px', whiteSpace: 'nowrap' }}>
                                             {modelLabels[cd.model_code] || cd.model_code || '-'}
                                         </Box>
+                                    </Box>
+
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', alignItems: 'center', mb: 0.1 }}>
+                                        {cd.model_code?.startsWith('price_spread') ? (
+                                            <>
+                                                {refPrice && (
+                                                    <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
+                                                        基准: <Box component="span" sx={{ color: 'text.primary', fontWeight: 600 }}>{((refPrice.base_value || 0) * 1000).toFixed(2)}</Box>
+                                                    </Typography>
+                                                )}
+                                                {pricingConfig.sharing_ratio !== undefined && (
+                                                    <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
+                                                        分成: <Box component="span" sx={{ color: 'text.primary', fontWeight: 600 }}>{pricingConfig.sharing_ratio}%</Box>
+                                                    </Typography>
+                                                )}
+                                                {pricingConfig.agreed_price_spread !== undefined && (
+                                                    <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
+                                                        价差: <Box component="span" sx={{ color: 'text.primary', fontWeight: 600 }}>{(parseFloat(pricingConfig.agreed_price_spread) * 1000).toFixed(1)}</Box>
+                                                    </Typography>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <>
+                                                {pricingConfig.linked_ratio !== undefined && (
+                                                    <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
+                                                        比例: <Box component="span" sx={{ color: 'text.primary', fontWeight: 600 }}>{pricingConfig.linked_ratio || pricingConfig.ratio || 0}%</Box>
+                                                    </Typography>
+                                                )}
+                                                {(pricingConfig.linked_target || linkedCfg?.target) && (
+                                                    <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
+                                                        标的: <Box component="span" sx={{ color: 'text.primary', fontWeight: 600 }}>
+                                                            {linkedTargetLabel[pricingConfig.linked_target || linkedCfg?.target] || pricingConfig.linked_target || linkedCfg?.target || '-'}
+                                                        </Box>
+                                                    </Typography>
+                                                )}
+                                            </>
+                                        )}
+                                        {(pricingConfig.floating_price !== undefined || pricingConfig.floating_fee !== undefined) && (
+                                            <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
+                                                浮动: <Box component="span" sx={{ color: 'text.primary', fontWeight: 600 }}>
+                                                    {((parseFloat(pricingConfig.floating_price || 0) + parseFloat(pricingConfig.floating_fee || 0)) * 1000).toFixed(1)}
+                                                </Box>
+                                            </Typography>
+                                        )}
                                     </Box>
 
                                     <Divider sx={{ mt: 0, mb: 0.4 }} />
