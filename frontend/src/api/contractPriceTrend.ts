@@ -32,16 +32,31 @@ export interface SpreadDistribution {
     count: number;
 }
 
+export interface Period48TrendPoint {
+    period: number;
+    label: string;
+    contract_vwap: number | null;
+    spot_vwap: number | null;
+    vwap_spread: number | null;
+}
+
 export interface ContractPriceTrendResponse {
     daily_trends: DailyTrendPoint[];
     spread_stats: SpreadStats;
     spread_distribution: SpreadDistribution[];
+    period_48_trends: Period48TrendPoint[];
 }
 
 // ========== 曲线分析类型 ==========
 
 export interface DailyCurvePoint {
     date: string;
+    vwap: number | null;
+}
+
+export interface CurvePeriod48Point {
+    period: number;
+    label: string;
     vwap: number | null;
 }
 
@@ -52,6 +67,7 @@ export interface CurveData {
     label: string;
     color: string;
     points: DailyCurvePoint[];
+    period_48_points: CurvePeriod48Point[];
 }
 
 export interface CurveAnalysisResponse {

@@ -15,7 +15,8 @@ import {
     Typography,
     CircularProgress,
     Alert,
-    Chip
+    Chip,
+    Grid
 } from '@mui/material';
 import {
     LineChart,
@@ -105,7 +106,7 @@ const FilterPanel: React.FC<{
     }, {} as { [key: string]: CurveData[] });
 
     return (
-        <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
+        <Paper variant="outlined" sx={{ p: 2 }}>
             {/* 合同类型曲线选择 */}
             <Box sx={{
                 display: 'flex',
@@ -212,8 +213,76 @@ const renderWeekendReferenceAreas = (dateRange: string[]) => {
     });
 };
 
-// 多曲线图表
-const MultiCurveChart: React.FC<{
+const buildDailyChartData = (data: CurveAnalysisResponse, selectedCurves: string[], showSpot: boolean) => {
+    return data.date_range.map(date => {
+        const point: any = { date };
+
+        data.curves.forEach(curve => {
+            if (selectedCurves.includes(curve.key)) {
+                const curvePoint = curve.points.find(p => p.date === date);
+                point[curve.key] = curvePoint?.vwap ?? null;
+            }
+        });
+
+        if (showSpot) {
+            const spotPoint = data.spot_curve.points.find(p => p.date === date);
+            point.spot = spotPoint?.vwap ?? null;
+        }
+
+        return point;
+    });
+};
+
+const buildPeriod48ChartData = (data: CurveAnalysisResponse, selectedCurves: string[], showSpot: boolean) => {
+    return Array.from({ length: 48 }, (_, index) => {
+        const period = index + 1;
+        const point: any = { period, label: `${period}`.padStart(2, '0') };
+
+        data.curves.forEach(curve => {
+            if (selectedCurves.includes(curve.key)) {
+                const curvePoint = curve.period_48_points.find(p => p.period === period);
+                point[curve.key] = curvePoint?.vwap ?? null;
+            }
+        });
+
+        if (showSpot) {
+            const spotPoint = data.spot_curve.period_48_points.find(p => p.period === period);
+            point.spot = spotPoint?.vwap ?? null;
+        }
+
+        return point;
+    });
+};
+
+const getCurveConfig = (data: CurveAnalysisResponse, key: string): { color: string; label: string } => {
+    const curve = data.curves.find(c => c.key === key);
+    if (curve) {
+        return { color: curve.color, label: curve.label };
+    }
+    return { color: '#999', label: key };
+};
+
+const calcYDomain = (chartData: any[], xKey: string) => {
+    const allPrices: number[] = [];
+    chartData.forEach(row => {
+        Object.keys(row).forEach(key => {
+            if (key !== xKey && row[key] !== null && row[key] !== undefined) {
+                allPrices.push(row[key]);
+            }
+        });
+    });
+
+    if (allPrices.length === 0) {
+        return [0, 500];
+    }
+
+    const minPrice = Math.min(...allPrices);
+    const maxPrice = Math.max(...allPrices);
+    return [Math.floor(minPrice * 0.95), Math.ceil(maxPrice * 1.05)];
+};
+
+// 多曲线日均图表
+const DailyCurveChart: React.FC<{
     data: CurveAnalysisResponse;
     selectedCurves: string[];
     showSpot: boolean;
@@ -224,58 +293,22 @@ const MultiCurveChart: React.FC<{
     const { isFullscreen, FullscreenEnterButton, FullscreenExitButton, FullscreenTitle } =
         useChartFullscreen({
             chartRef,
-            title: `曲线分析 (${dateRange})`
+            title: `日均价格曲线 (${dateRange})`
         });
 
-    // 构建图表数据
-    const chartData = data.date_range.map(date => {
-        const point: any = { date };
-
-        // 添加选中的合同曲线数据
-        data.curves.forEach(curve => {
-            if (selectedCurves.includes(curve.key)) {
-                const curvePoint = curve.points.find(p => p.date === date);
-                point[curve.key] = curvePoint?.vwap ?? null;
-            }
-        });
-
-        // 添加现货数据
-        if (showSpot) {
-            const spotPoint = data.spot_curve.points.find(p => p.date === date);
-            point['spot'] = spotPoint?.vwap ?? null;
-        }
-
-        return point;
-    });
-
-    // 计算Y轴范围
-    const allPrices: number[] = [];
-    chartData.forEach(d => {
-        Object.keys(d).forEach(key => {
-            if (key !== 'date' && d[key] !== null && d[key] !== undefined) {
-                allPrices.push(d[key]);
-            }
-        });
-    });
-    const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
-    const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : 500;
-    const yDomain = [Math.floor(minPrice * 0.95), Math.ceil(maxPrice * 1.05)];
+    const chartData = buildDailyChartData(data, selectedCurves, showSpot);
+    const yDomain = calcYDomain(chartData, 'date');
 
     const hasData = chartData.length > 0 && (selectedCurves.length > 0 || showSpot);
 
-    // 获取曲线配置
-    const getCurveConfig = (key: string): { color: string; label: string } => {
-        const curve = data.curves.find(c => c.key === key);
-        if (curve) return { color: curve.color, label: curve.label };
-        return { color: '#999', label: key };
-    };
-
     return (
-        <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Typography variant="h6" gutterBottom>日均价格曲线</Typography>
             <Box
                 ref={chartRef}
                 sx={{
-                    height: { xs: 400, sm: 450 },
+                    height: { xs: 360, md: '100%' },
+                    minHeight: { xs: 360, md: 0 },
                     position: 'relative',
                     backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
                     p: isFullscreen ? 2 : 0,
@@ -286,7 +319,9 @@ const MultiCurveChart: React.FC<{
                         width: '100vw',
                         height: '100vh',
                         zIndex: 1400
-                    })
+                    }),
+                    '& .recharts-surface:focus': { outline: 'none' },
+                    '& *:focus': { outline: 'none !important' }
                 }}
             >
                 <FullscreenEnterButton />
@@ -331,7 +366,7 @@ const MultiCurveChart: React.FC<{
 
                             {/* 合同曲线 */}
                             {selectedCurves.map(key => {
-                                const config = getCurveConfig(key);
+                                const config = getCurveConfig(data, key);
                                 return (
                                     <Line
                                         key={key}
@@ -347,6 +382,121 @@ const MultiCurveChart: React.FC<{
                             })}
 
                             {/* 现货曲线 */}
+                            {showSpot && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="spot"
+                                    stroke={data.spot_curve.color}
+                                    strokeWidth={2}
+                                    strokeDasharray="5 5"
+                                    name={data.spot_curve.label}
+                                    dot={false}
+                                    connectNulls
+                                />
+                            )}
+                        </LineChart>
+                    </ResponsiveContainer>
+                )}
+            </Box>
+        </Paper>
+    );
+};
+
+const Period48CurveChart: React.FC<{
+    data: CurveAnalysisResponse;
+    selectedCurves: string[];
+    showSpot: boolean;
+    dateRange: string;
+}> = ({ data, selectedCurves, showSpot, dateRange }) => {
+    const chartRef = useRef<HTMLDivElement>(null);
+    const { isFullscreen, FullscreenEnterButton, FullscreenExitButton, FullscreenTitle } =
+        useChartFullscreen({
+            chartRef,
+            title: `48时段均价曲线 (${dateRange})`
+        });
+
+    const chartData = buildPeriod48ChartData(data, selectedCurves, showSpot);
+    const yDomain = calcYDomain(chartData, 'label');
+    const hasData = chartData.length > 0 && (selectedCurves.length > 0 || showSpot);
+
+    return (
+        <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Typography variant="h6" gutterBottom>48时段均价曲线</Typography>
+            <Box
+                ref={chartRef}
+                sx={{
+                    height: { xs: 360, md: '100%' },
+                    minHeight: { xs: 360, md: 0 },
+                    position: 'relative',
+                    backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
+                    p: isFullscreen ? 2 : 0,
+                    ...(isFullscreen && {
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100vw',
+                        height: '100vh',
+                        zIndex: 1400
+                    }),
+                    '& .recharts-surface:focus': { outline: 'none' },
+                    '& *:focus': { outline: 'none !important' }
+                }}
+            >
+                <FullscreenEnterButton />
+                <FullscreenExitButton />
+                <FullscreenTitle />
+
+                {!hasData ? (
+                    <Box sx={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography color="text.secondary">请选择至少一条曲线</Typography>
+                    </Box>
+                ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="label" tick={{ fontSize: 12 }} interval={1} minTickGap={2} />
+                            <YAxis
+                                domain={yDomain}
+                                label={{ value: '价格 (元/MWh)', angle: -90, position: 'insideLeft' }}
+                                tick={{ fontSize: 12 }}
+                            />
+                            <Tooltip
+                                content={({ active, payload, label }) => {
+                                    if (active && payload && payload.length) {
+                                        return (
+                                            <Paper sx={{ p: 1.5, backgroundColor: 'rgba(255, 255, 255, 0.95)', border: '1px solid #ccc', borderRadius: '4px' }}>
+                                                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                                                    时段: {label}
+                                                </Typography>
+                                                {payload.map((pld: any) => (
+                                                    <Typography key={pld.dataKey} variant="body2" sx={{ color: pld.color }}>
+                                                        {pld.name}: {pld.value !== null ? `${Number(pld.value).toFixed(2)} 元/MWh` : 'N/A'}
+                                                    </Typography>
+                                                ))}
+                                            </Paper>
+                                        );
+                                    }
+                                    return null;
+                                }}
+                            />
+                            <Legend />
+
+                            {selectedCurves.map(key => {
+                                const config = getCurveConfig(data, key);
+                                return (
+                                    <Line
+                                        key={key}
+                                        type="monotone"
+                                        dataKey={key}
+                                        stroke={config.color}
+                                        strokeWidth={2}
+                                        name={config.label}
+                                        dot={false}
+                                        connectNulls
+                                    />
+                                );
+                            })}
+
                             {showSpot && (
                                 <Line
                                     type="monotone"
@@ -433,7 +583,7 @@ export const CurveCompareTab: React.FC<CurveCompareTabProps> = ({
     }
 
     return (
-        <Box sx={{ position: 'relative' }}>
+        <Box sx={{ position: 'relative', height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: { xs: 1, md: 1.5 } }}>
             {loading && (
                 <Box
                     sx={{
@@ -466,12 +616,24 @@ export const CurveCompareTab: React.FC<CurveCompareTabProps> = ({
                 spotLabel={spotLabel}
             />
 
-            <MultiCurveChart
-                data={data}
-                selectedCurves={selectedCurves}
-                showSpot={showSpot}
-                dateRange={dateRange}
-            />
+            <Grid container spacing={{ xs: 1, sm: 2 }} sx={{ flex: 1, minHeight: 0, alignItems: 'stretch', width: '100%' }}>
+                <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex', minHeight: 0, width: '100%' }}>
+                    <DailyCurveChart
+                        data={data}
+                        selectedCurves={selectedCurves}
+                        showSpot={showSpot}
+                        dateRange={dateRange}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }} sx={{ display: 'flex', minHeight: 0, width: '100%' }}>
+                    <Period48CurveChart
+                        data={data}
+                        selectedCurves={selectedCurves}
+                        showSpot={showSpot}
+                        dateRange={dateRange}
+                    />
+                </Grid>
+            </Grid>
         </Box>
     );
 };

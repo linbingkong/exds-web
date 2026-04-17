@@ -9,8 +9,8 @@ import {
     CircularProgress, Alert, useTheme, useMediaQuery
 } from '@mui/material';
 import {
-    LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-    Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell, ReferenceArea, ComposedChart
+    LineChart, Line, XAxis, YAxis, CartesianGrid,
+    Tooltip, Legend, ResponsiveContainer, ReferenceArea, ComposedChart
 } from 'recharts';
 import { useChartFullscreen } from '../../hooks/useChartFullscreen';
 import { useSelectableSeries } from '../../hooks/useSelectableSeries';
@@ -44,13 +44,10 @@ const TrendSummaryPanel: React.FC<{
 
     // 趋势判断
     let trendText = "震荡";
-    let trendColor = "text.secondary";
     if (stats.slope > 0.5) {
         trendText = "上涨趋势";
-        trendColor = "error.main";
     } else if (stats.slope < -0.5) {
         trendText = "下跌趋势";
-        trendColor = "success.main";
     }
 
     // 价差建议
@@ -68,7 +65,6 @@ const TrendSummaryPanel: React.FC<{
             variant="outlined"
             sx={{
                 p: 2,
-                mb: 2,
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 color: 'white',
                 borderRadius: 2,
@@ -131,93 +127,55 @@ const renderWeekendReferenceAreas = (data: any[]) => {
     });
 };
 
-// 价差分布直方图组件
-const PriceDistributionChart: React.FC<{ data: any[] }> = ({ data }) => {
+// 48时段区间均价对比图
+const PeriodAverageChart: React.FC<{
+    data: ContractPriceTrendResponse['period_48_trends'];
+    spotLabel: string;
+}> = ({ data, spotLabel }) => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const chartRef = useRef<HTMLDivElement>(null);
     const { isFullscreen, FullscreenEnterButton, FullscreenExitButton, FullscreenTitle } = useChartFullscreen({
         chartRef,
-        title: '价差分布直方图'
+        title: `48时段均价对比（中长期 vs ${spotLabel}）`
     });
 
     return (
-        <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>价差分布直方图</Typography>
+        <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Typography variant="h6" gutterBottom>48时段均价对比（中长期 vs {spotLabel}）</Typography>
             <Box ref={chartRef} sx={{
-                height: { xs: 300, sm: 350 },
+                height: { xs: 320, md: '100%' },
+                minHeight: { xs: 320, md: 360 },
                 position: 'relative',
                 bgcolor: isFullscreen ? 'background.paper' : 'transparent',
                 p: isFullscreen ? 2 : 0,
-                ...(isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400 })
+                ...(isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400 }),
+                '& .recharts-surface:focus': { outline: 'none' },
+                '& *:focus': { outline: 'none !important' }
             }}>
                 <FullscreenEnterButton />
                 <FullscreenExitButton />
                 <FullscreenTitle />
                 <ResponsiveContainer>
-                    <BarChart data={data}>
+                    <LineChart data={data} margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis
-                            dataKey="range"
-                            tick={!isMobile ? { fontSize: 12 } : false}
-                            interval={0}
-                            angle={-45}
-                            textAnchor="end"
-                            height={isMobile ? 30 : 60}
+                            dataKey="label"
+                            tick={{ fontSize: isMobile ? 10 : 12 }}
+                            interval={isMobile ? 3 : 1}
+                            minTickGap={isMobile ? 6 : 2}
                         />
-                        <YAxis label={{ value: '天数', angle: -90, position: 'insideLeft' }} allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="count" name="天数" fill="#8884d8">
-                            {data.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={parseInt(entry.range) < 0 ? '#4caf50' : '#f44336'} />
-                            ))}
-                        </Bar>
-                    </BarChart>
-                </ResponsiveContainer>
-            </Box>
-        </Paper>
-    );
-};
-
-// 每日正负价差时段数图表组件
-const DailySpreadCountChart: React.FC<{ data: any[] }> = ({ data }) => {
-    const chartRef = useRef<HTMLDivElement>(null);
-    const { isFullscreen, FullscreenEnterButton, FullscreenExitButton, FullscreenTitle } = useChartFullscreen({
-        chartRef,
-        title: '每日正负价差时段数'
-    });
-
-    return (
-        <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>每日正负价差时段数</Typography>
-            <Box ref={chartRef} sx={{
-                height: { xs: 300, sm: 350 },
-                position: 'relative',
-                bgcolor: isFullscreen ? 'background.paper' : 'transparent',
-                p: isFullscreen ? 2 : 0,
-                ...(isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400 })
-            }}>
-                <FullscreenEnterButton />
-                <FullscreenExitButton />
-                <FullscreenTitle />
-                <ResponsiveContainer>
-                    <BarChart data={data} stackOffset="sign">
-                        <CartesianGrid strokeDasharray="3 3" />
-                        {renderWeekendReferenceAreas(data)}
-                        <XAxis dataKey="date" />
-                        <YAxis label={{ value: '时段数', angle: -90, position: 'insideLeft' }} />
+                        <YAxis label={{ value: '元/MWh', angle: -90, position: 'insideLeft' }} />
                         <Tooltip
-                            formatter={(value: number, name: string) => [Math.abs(value), name === 'positive_spread_count' ? '正价差时段数' : '负价差时段数']}
+                            formatter={(value: any, name: string) => [
+                                typeof value === 'number' ? value.toFixed(2) : '--',
+                                name
+                            ]}
                         />
                         <Legend />
-                        <ReferenceLine y={0} stroke="#000" />
-                        <Bar dataKey="positive_spread_count" name="正价差时段数" fill="#d32f2f" stackId="stack" />
-                        <Bar dataKey="negative_spread_count" name="负价差时段数" fill="#388e3c" stackId="stack">
-                            {data.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill="#388e3c" />
-                            ))}
-                        </Bar>
-                    </BarChart>
+                        <Line type="monotone" dataKey="contract_vwap" name="中长期均价" stroke="#9c27b0" strokeWidth={2.5} dot={false} />
+                        <Line type="monotone" dataKey="spot_vwap" name={`${spotLabel}均价`} stroke="#1976d2" strokeWidth={2.5} dot={false} strokeDasharray="5 5" />
+                    </LineChart>
                 </ResponsiveContainer>
             </Box>
         </Paper>
@@ -226,29 +184,29 @@ const DailySpreadCountChart: React.FC<{ data: any[] }> = ({ data }) => {
 
 export const PriceTrendTab: React.FC<PriceTrendTabProps> = ({ data, loading, error, spotBenchmark }) => {
     const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const spotLabel = spotBenchmark === 'day_ahead' ? '日前' : '实时';
 
     // Derived values
-    const chartHeight = { xs: 350, sm: 400 };
+    const chartHeight = { xs: 320, md: '100%' };
 
     // Refs for charts
     const priceChartRef = useRef<HTMLDivElement>(null);
-    const spreadChartRef = useRef<HTMLDivElement>(null);
 
     // Fullscreen hooks
     const priceFullscreen = useChartFullscreen({ chartRef: priceChartRef, title: '日均价格趋势' });
-    const spreadFullscreen = useChartFullscreen({ chartRef: spreadChartRef, title: '日均价差趋势' });
 
     // Series selection hooks
     const priceSeries = useSelectableSeries({ contract_vwap: true, spot_vwap: true });
 
     // Calculate Trend Line and Stats
-    const { chartData, stats, distributionData } = useMemo(() => {
-        if (!data?.daily_trends) return { chartData: [], stats: null, distributionData: [] };
-        const trends = [...data.daily_trends];
+    const { chartData, stats, periodChartData } = useMemo(() => {
+        if (!data?.daily_trends) return { chartData: [], stats: null, periodChartData: [] };
+
+        const sourceTrends = data.daily_trends;
 
         // 1. Linear Regression on contract_vwap
-        const points = trends
+        const points = sourceTrends
             .map((d: any, i: number) => ({ x: i, y: d.contract_vwap }))
             .filter(p => p.y !== null && p.y !== undefined);
 
@@ -265,11 +223,13 @@ export const PriceTrendTab: React.FC<PriceTrendTabProps> = ({ data, loading, err
             slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
             intercept = (sumY - slope * sumX) / n;
 
-            // 给每个数据点添加趋势线值
-            trends.forEach((d: any, i: number) => {
-                d.trend_line = slope * i + intercept;
-            });
         }
+
+        // 使用 map 创建新对象，避免修改原始数据（来自 React 状态的冻结对象）
+        const trends = sourceTrends.map((d: any, i: number) => ({
+            ...d,
+            trend_line: points.length > 1 ? slope * i + intercept : undefined
+        }));
 
         // 2. Calculate Stats
         const startPrice = points.length > 0 ? (slope * 0 + intercept) : 0;
@@ -286,18 +246,15 @@ export const PriceTrendTab: React.FC<PriceTrendTabProps> = ({ data, loading, err
             minSpread: data.spread_stats.minSpread
         };
 
-        // 3. Distribution Data
-        const distributionData = data.spread_distribution || [];
-
         return {
             chartData: trends,
             stats: statsObj,
-            distributionData
+            periodChartData: data.period_48_trends || []
         };
     }, [data]);
 
     return (
-        <Box>
+        <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {/* Content Area */}
             {loading && !data ? (
                 <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -306,7 +263,7 @@ export const PriceTrendTab: React.FC<PriceTrendTabProps> = ({ data, loading, err
             ) : error ? (
                 <Alert severity="error">{error}</Alert>
             ) : data ? (
-                <Box sx={{ position: 'relative' }}>
+                <Box sx={{ position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', gap: { xs: 1, md: 1.5 } }}>
                     {/* Loading Overlay */}
                     {loading && (
                         <Box sx={{
@@ -321,29 +278,31 @@ export const PriceTrendTab: React.FC<PriceTrendTabProps> = ({ data, loading, err
                     {/* Top: Trend Summary Panel */}
                     {stats && <TrendSummaryPanel stats={stats} spotBenchmark={spotBenchmark} />}
 
-                    <Grid container spacing={{ xs: 1, sm: 2 }}>
-                        {/* Row 1: Price Trend & Spread Trend */}
+                    <Grid container spacing={{ xs: 1, sm: 2 }} sx={{ flex: 1, minHeight: 0, alignItems: 'stretch' }}>
                         {/* Left: Price Trend */}
                         <Grid size={{ xs: 12, md: 6 }}>
-                            <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 } }}>
+                            <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, height: '100%', display: 'flex', flexDirection: 'column', minHeight: { xs: 360, md: 0 } }}>
                                 <Typography variant="h6" gutterBottom>日均价格趋势</Typography>
                                 <Box ref={priceChartRef} sx={{
                                     height: chartHeight,
+                                    minHeight: { xs: 320, md: 360 },
                                     position: 'relative',
                                     bgcolor: priceFullscreen.isFullscreen ? 'background.paper' : 'transparent',
                                     p: priceFullscreen.isFullscreen ? 2 : 0,
-                                    ...(priceFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400 })
+                                    ...(priceFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400 }),
+                                    '& .recharts-surface:focus': { outline: 'none' },
+                                    '& *:focus': { outline: 'none !important' }
                                 }}>
                                     <priceFullscreen.FullscreenEnterButton />
                                     <priceFullscreen.FullscreenExitButton />
                                     <priceFullscreen.FullscreenTitle />
                                     <ResponsiveContainer>
-                                        <ComposedChart data={chartData}>
+                                        <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
                                             <CartesianGrid strokeDasharray="3 3" />
                                             {renderWeekendReferenceAreas(chartData)}
-                                            <XAxis dataKey="date" />
+                                            <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 6} />
                                             <YAxis label={{ value: '元/MWh', angle: -90, position: 'insideLeft' }} />
-                                            <Tooltip formatter={(value: number) => value?.toFixed(2)} />
+                                            <Tooltip formatter={(value: any) => typeof value === 'number' ? value.toFixed(2) : '--'} />
                                             <Legend onClick={priceSeries.handleLegendClick} />
                                             <Line hide={!priceSeries.seriesVisibility.contract_vwap} type="monotone" dataKey="contract_vwap" name="中长期均价" stroke="#9c27b0" strokeWidth={2} dot={false} />
                                             <Line hide={!priceSeries.seriesVisibility.spot_vwap} type="monotone" dataKey="spot_vwap" name={`${spotLabel}均价`} stroke="#1976d2" strokeWidth={2} strokeDasharray="5 5" dot={false} />
@@ -353,52 +312,9 @@ export const PriceTrendTab: React.FC<PriceTrendTabProps> = ({ data, loading, err
                             </Paper>
                         </Grid>
 
-                        {/* Right: Spread Trend */}
+                        {/* Right: Period 48 Trend */}
                         <Grid size={{ xs: 12, md: 6 }}>
-                            <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, height: '100%' }}>
-                                <Typography variant="h6" gutterBottom>日均价差趋势（中长期 - {spotLabel}）</Typography>
-                                <Box ref={spreadChartRef} sx={{
-                                    height: { xs: 300, sm: 350 },
-                                    position: 'relative',
-                                    bgcolor: spreadFullscreen.isFullscreen ? 'background.paper' : 'transparent',
-                                    p: spreadFullscreen.isFullscreen ? 2 : 0,
-                                    ...(spreadFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400 })
-                                }}>
-                                    <spreadFullscreen.FullscreenEnterButton />
-                                    <spreadFullscreen.FullscreenExitButton />
-                                    <spreadFullscreen.FullscreenTitle />
-                                    <ResponsiveContainer>
-                                        <BarChart data={data.daily_trends}>
-                                            <CartesianGrid strokeDasharray="3 3" />
-                                            {renderWeekendReferenceAreas(data.daily_trends)}
-                                            <XAxis dataKey="date" />
-                                            <YAxis label={{ value: '元/MWh', angle: -90, position: 'insideLeft' }} />
-                                            <Tooltip />
-                                            <Legend />
-                                            <ReferenceLine y={0} stroke="#000" />
-                                            <Bar dataKey="vwap_spread" name="价差 (中长期-现货)">
-                                                {data.daily_trends.map((entry: any, index: number) => (
-                                                    <Cell key={`cell-${index}`} fill={entry.vwap_spread >= 0 ? '#d32f2f' : '#388e3c'} />
-                                                ))}
-                                            </Bar>
-                                        </BarChart>
-                                    </ResponsiveContainer>
-                                </Box>
-                            </Paper>
-                        </Grid>
-
-                        {/* Row 2: Daily Spread Count & Spread Distribution */}
-                        {/* Left: Daily Spread Count */}
-                        <Grid size={{ xs: 12, md: 6 }}>
-                            <DailySpreadCountChart data={data.daily_trends.map((d: any) => ({
-                                ...d,
-                                negative_spread_count: -d.negative_spread_count // Convert to negative for display
-                            }))} />
-                        </Grid>
-
-                        {/* Right: Spread Distribution */}
-                        <Grid size={{ xs: 12, md: 6 }}>
-                            <PriceDistributionChart data={distributionData} />
+                            <PeriodAverageChart data={periodChartData} spotLabel={spotLabel} />
                         </Grid>
                     </Grid>
                 </Box>

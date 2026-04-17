@@ -13,7 +13,6 @@ import {
     Typography,
     CircularProgress,
     Alert,
-    Grid,
     Chip
 } from '@mui/material';
 import {
@@ -163,34 +162,52 @@ const StackedBarChart: React.FC<{
         : ['市场化', '绿电', '代购电'];
 
     return (
-        <Box
-            ref={chartRef}
+        <Paper
+            variant="outlined"
             sx={{
-                height: { xs: 350, sm: 400 },
-                position: 'relative',
-                backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
-                p: isFullscreen ? 2 : 0,
-                ...(isFullscreen && {
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    width: '100vw',
-                    height: '100vh',
-                    zIndex: 1400
-                })
+                p: { xs: 1, sm: 2 },
+                width: '100%',
+                height: { xs: 'auto', md: '100%' },
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0
             }}
         >
-            <FullscreenEnterButton />
-            <FullscreenExitButton />
-            <FullscreenTitle />
+            <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                电量结构趋势
+            </Typography>
+            <Box
+                ref={chartRef}
+                sx={{
+                    flex: { xs: 'none', md: 1 },
+                    height: { xs: 320, md: '100%' },
+                    minHeight: { xs: 320, md: 0 },
+                    position: 'relative',
+                    backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
+                    p: isFullscreen ? 2 : 0,
+                    ...(isFullscreen && {
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100vw',
+                        height: '100vh',
+                        zIndex: 1400
+                    }),
+                    '& .recharts-surface:focus': { outline: 'none' },
+                    '& *:focus': { outline: 'none !important' }
+                }}
+            >
+                <FullscreenEnterButton />
+                <FullscreenExitButton />
+                <FullscreenTitle />
 
-            {!hasData ? (
-                <Box sx={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                    <Typography color="text.secondary">暂无电量数据</Typography>
-                </Box>
-            ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                {!hasData ? (
+                    <Box sx={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography color="text.secondary">暂无电量数据</Typography>
+                    </Box>
+                ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData} margin={{ top: 20, right: 20, left: 8, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         {renderWeekendReferenceAreas(data.date_range)}
                         <XAxis dataKey="date" tick={{ fontSize: 10 }} />
@@ -233,9 +250,10 @@ const StackedBarChart: React.FC<{
                             />
                         ))}
                     </BarChart>
-                </ResponsiveContainer>
-            )}
-        </Box>
+                    </ResponsiveContainer>
+                )}
+            </Box>
+        </Paper>
     );
 };
 
@@ -247,11 +265,21 @@ const QuantityPieChart: React.FC<{
     const total = data.reduce((sum, d) => sum + d.value, 0);
 
     return (
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper
+            variant="outlined"
+            sx={{
+                p: { xs: 1, sm: 2 },
+                width: '100%',
+                height: { xs: 'auto', md: '100%' },
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0
+            }}
+        >
             <Typography variant="subtitle1" sx={{ fontWeight: 'bold', textAlign: 'center', mb: 1 }}>
                 {title}
             </Typography>
-            <Box sx={{ height: 200 }}>
+            <Box sx={{ flex: { xs: 'none', md: 1 }, height: { xs: 220, md: '100%' }, minHeight: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie
@@ -259,8 +287,8 @@ const QuantityPieChart: React.FC<{
                             cx="50%"
                             cy="50%"
                             labelLine={false}
-                            label={({ name, percent }: any) => `${name} ${((percent || 0) * 100).toFixed(1)}%`}
-                            outerRadius={70}
+                            label={({ percent }: any) => `${((percent || 0) * 100).toFixed(1)}%`}
+                            outerRadius={58}
                             dataKey="value"
                         >
                             {data.map((entry, index) => (
@@ -273,7 +301,6 @@ const QuantityPieChart: React.FC<{
                     </PieChart>
                 </ResponsiveContainer>
             </Box>
-            {/* 图例 */}
             <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap', mt: 1 }}>
                 {data.map(d => (
                     <Box key={d.name} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -365,8 +392,7 @@ export const QuantityStructureTab: React.FC<QuantityStructureTabProps> = ({
     }
 
     return (
-        <Box sx={{ position: 'relative' }}>
-            {/* Loading覆盖层 */}
+        <Box sx={{ position: 'relative', height: { xs: 'auto', md: '100%' }, minHeight: 0, display: 'flex', flexDirection: 'column', gap: { xs: 1, md: 1.5 } }}>
             {loading && (
                 <Box
                     sx={{
@@ -383,7 +409,6 @@ export const QuantityStructureTab: React.FC<QuantityStructureTabProps> = ({
                 </Box>
             )}
 
-            {/* 第一部分：蓝色渐变消息提示框 */}
             <SummaryPanel
                 totalQuantity={data.total_quantity}
                 periodTotals={data.period_totals}
@@ -391,53 +416,76 @@ export const QuantityStructureTab: React.FC<QuantityStructureTabProps> = ({
                 dayCount={data.date_range.length}
             />
 
-            {/* 第二部分：堆叠柱状图 */}
-            <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
-                {/* 分色切换按钮 */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>分色维度:</Typography>
-                    <Chip
-                        label="按周期"
-                        size="small"
-                        onClick={() => setColorMode('period')}
-                        sx={{
-                            backgroundColor: colorMode === 'period' ? '#1976d2' : 'transparent',
-                            color: colorMode === 'period' ? 'white' : 'text.primary',
-                            border: `1px solid ${colorMode === 'period' ? '#1976d2' : '#ccc'}`,
-                            fontWeight: colorMode === 'period' ? 'bold' : 'normal',
-                            cursor: 'pointer'
-                        }}
-                    />
-                    <Chip
-                        label="按类型"
-                        size="small"
-                        onClick={() => setColorMode('type')}
-                        sx={{
-                            backgroundColor: colorMode === 'type' ? '#1976d2' : 'transparent',
-                            color: colorMode === 'type' ? 'white' : 'text.primary',
-                            border: `1px solid ${colorMode === 'type' ? '#1976d2' : '#ccc'}`,
-                            fontWeight: colorMode === 'type' ? 'bold' : 'normal',
-                            cursor: 'pointer'
-                        }}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>分色维度:</Typography>
+                <Chip
+                    label="按周期"
+                    size="small"
+                    onClick={() => setColorMode('period')}
+                    sx={{
+                        backgroundColor: colorMode === 'period' ? '#1976d2' : 'transparent',
+                        color: colorMode === 'period' ? 'white' : 'text.primary',
+                        border: `1px solid ${colorMode === 'period' ? '#1976d2' : '#ccc'}`,
+                        fontWeight: colorMode === 'period' ? 'bold' : 'normal',
+                        cursor: 'pointer'
+                    }}
+                />
+                <Chip
+                    label="按类型"
+                    size="small"
+                    onClick={() => setColorMode('type')}
+                    sx={{
+                        backgroundColor: colorMode === 'type' ? '#1976d2' : 'transparent',
+                        color: colorMode === 'type' ? 'white' : 'text.primary',
+                        border: `1px solid ${colorMode === 'type' ? '#1976d2' : '#ccc'}`,
+                        fontWeight: colorMode === 'type' ? 'bold' : 'normal',
+                        cursor: 'pointer'
+                    }}
+                />
+            </Box>
+
+            <Box
+                sx={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: 'flex',
+                    flexDirection: { xs: 'column', md: 'row' },
+                    gap: { xs: 1, sm: 2 },
+                    overflow: { xs: 'visible', md: 'hidden' }
+                }}
+            >
+                <Box
+                    sx={{
+                        width: { xs: '100%', md: '70%' },
+                        flex: { xs: 'none', md: '0 0 70%' },
+                        minHeight: 0,
+                        display: 'flex'
+                    }}
+                >
+                    <StackedBarChart
+                        data={data}
+                        colorMode={colorMode}
+                        dateRange={dateRange}
                     />
                 </Box>
-
-                <StackedBarChart
-                    data={data}
-                    colorMode={colorMode}
-                    dateRange={dateRange}
-                />
-            </Paper>
-
-            {/* 第三部分：双饼图 */}
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                    <QuantityPieChart data={periodPieData} title="按交易周期" />
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                    <QuantityPieChart data={typePieData} title="按合同类型" />
-                </Grid>
-            </Grid>
+                <Box
+                    sx={{
+                        width: { xs: '100%', md: '30%' },
+                        flex: { xs: 'none', md: '0 0 30%' },
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minHeight: 0,
+                        gap: { xs: 1, sm: 2 }
+                    }}
+                >
+                    <Box sx={{ flex: 1, minHeight: { xs: 220, md: 0 }, display: 'flex' }}>
+                        <QuantityPieChart data={periodPieData} title="按交易周期" />
+                    </Box>
+                    <Box sx={{ flex: 1, minHeight: { xs: 220, md: 0 }, display: 'flex' }}>
+                        <QuantityPieChart data={typePieData} title="按合同类型" />
+                    </Box>
+                </Box>
+            </Box>
         </Box>
     );
 };

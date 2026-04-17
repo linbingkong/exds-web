@@ -14,9 +14,11 @@ from webapp.models.contract_price_trend import (
     DailyTrendPoint,
     SpreadStats,
     SpreadDistribution,
+    Period48TrendPoint,
     CurveAnalysisResponse,
     CurveData,
     DailyCurvePoint,
+    CurvePeriod48Point,
     QuantityStructureResponse,
     DailyQuantityPoint
 )
@@ -103,10 +105,14 @@ class ContractPriceTrendService:
         # 7. 计算价差分布
         spread_distribution = self._calc_spread_distribution(all_spreads)
         
+        # 8. 计算区间内48时段聚合均价
+        period_48_trends = self._get_period_48_trends(date_list, spot_type)
+        
         return ContractPriceTrendResponse(
             daily_trends=daily_trends,
             spread_stats=spread_stats,
-            spread_distribution=spread_distribution
+            spread_distribution=spread_distribution,
+            period_48_trends=period_48_trends
         )
 
     def _get_contract_daily_vwap(self, date_list: List[str]) -> Dict[str, float]:
@@ -255,6 +261,105 @@ class ContractPriceTrendService:
         
         return result
 
+    def _get_contract_period_48_trends(self, date_list: List[str]) -> Dict[int, Optional[float]]:
+        """获取区间内中长期合同48时段均价"""
+        period_stats = {period: {"cost": 0.0, "qty": 0.0} for period in range(1, 49)}
+
+        cursor = self.contracts_collection.find({
+            "date": {"$in": date_list},
+            "entity": "全市场",
+            "contract_type": "整体",
+            "contract_period": "整体"
+        })
+
+        for doc in cursor:
+            periods = doc.get("periods", []) or []
+            point_count = len(periods)
+            if point_count not in (24, 48, 96):
+                point_count = 48
+
+            for idx, period_doc in enumerate(periods, start=1):
+                price = period_doc.get("price_yuan_per_mwh")
+                qty = period_doc.get("quantity_mwh", 0) or 0
+                if price is None or qty <= 0:
+                    continue
+
+                normalized_points = self._normalize_contract_period_to_48(point_count, idx)
+                if not normalized_points:
+                    continue
+
+                allocated_qty = qty / len(normalized_points)
+                for target_period in normalized_points:
+                    period_stats[target_period]["cost"] += price * allocated_qty
+                    period_stats[target_period]["qty"] += allocated_qty
+
+        return {
+            period: round(stats["cost"] / stats["qty"], 2) if stats["qty"] > 0 else None
+            for period, stats in period_stats.items()
+        }
+
+    def _normalize_contract_period_to_48(self, point_count: int, period: int) -> List[int]:
+        """将24/48/96点中长期时段映射到48时段"""
+        if point_count == 48:
+            return [period] if 1 <= period <= 48 else []
+
+        if point_count == 24:
+            target_period = (period - 1) * 2 + 1
+            return [target_period, target_period + 1] if 1 <= target_period <= 47 else []
+
+        if point_count == 96:
+            target_period = (period + 1) // 2
+            return [target_period] if 1 <= target_period <= 48 else []
+
+        return [period] if 1 <= period <= 48 else []
+
+    def _get_contract_period_48_trends_by_type(self, date_list: List[str]) -> Dict[str, Dict[int, Optional[float]]]:
+        """获取各合同类型区间内48时段均价"""
+        period_stats_by_curve = {
+            curve_key: {period: {"cost": 0.0, "qty": 0.0} for period in range(1, 49)}
+            for curve_key in self.CURVE_CONFIG.keys()
+        }
+
+        cursor = self.contracts_collection.find({
+            "date": {"$in": date_list},
+            "entity": "全市场"
+        })
+
+        for doc in cursor:
+            contract_type = doc.get("contract_type")
+            contract_period = doc.get("contract_period")
+            curve_key = f"{contract_type}-{contract_period}"
+            if curve_key not in self.CURVE_CONFIG:
+                continue
+
+            periods = doc.get("periods", []) or []
+            point_count = len(periods)
+            if point_count not in (24, 48, 96):
+                point_count = 48
+
+            for idx, period_doc in enumerate(periods, start=1):
+                price = period_doc.get("price_yuan_per_mwh")
+                qty = period_doc.get("quantity_mwh", 0) or 0
+                if price is None or qty <= 0:
+                    continue
+
+                normalized_points = self._normalize_contract_period_to_48(point_count, idx)
+                if not normalized_points:
+                    continue
+
+                allocated_qty = qty / len(normalized_points)
+                for target_period in normalized_points:
+                    period_stats_by_curve[curve_key][target_period]["cost"] += price * allocated_qty
+                    period_stats_by_curve[curve_key][target_period]["qty"] += allocated_qty
+
+        return {
+            curve_key: {
+                period: round(stats["cost"] / stats["qty"], 2) if stats["qty"] > 0 else None
+                for period, stats in period_map.items()
+            }
+            for curve_key, period_map in period_stats_by_curve.items()
+        }
+
     def _get_spot_period_prices(self, date_list: List[str], spot_type: str) -> Dict[str, Dict[int, float]]:
         """
         获取现货时段价格
@@ -346,6 +451,74 @@ class ContractPriceTrendService:
                         result[date_str][period_48] = sum(prices) / len(prices)
         
         return result
+
+    def _get_spot_period_48_trends(self, date_list: List[str], spot_type: str) -> Dict[int, Optional[float]]:
+        """获取区间内现货48时段均价"""
+        collection = self.da_collection if spot_type == "day_ahead" else self.rt_collection
+
+        if not date_list:
+            return {}
+
+        start_dt = datetime.strptime(date_list[0], "%Y-%m-%d")
+        end_dt = datetime.strptime(date_list[-1], "%Y-%m-%d") + timedelta(days=1)
+        query = {"datetime": {"$gt": start_dt, "$lte": end_dt}}
+        docs = list(collection.find(query))
+
+        period_stats = {period: {"cost": 0.0, "vol": 0.0} for period in range(1, 49)}
+
+        for doc in docs:
+            dt = doc.get("datetime")
+            if not dt:
+                continue
+
+            if dt.hour == 0 and dt.minute == 0:
+                business_date = (dt.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+                period_96 = 96
+            else:
+                business_date = dt.date().strftime("%Y-%m-%d")
+                period_96 = (dt.hour * 60 + dt.minute) // 15
+                if period_96 == 0:
+                    period_96 = 96
+
+            if business_date not in date_list:
+                continue
+
+            price = doc.get("avg_clearing_price")
+            vol = doc.get("total_clearing_power", 0) or 0
+            if price is None or vol <= 0:
+                continue
+
+            period_48 = (period_96 + 1) // 2
+            period_stats[period_48]["cost"] += price * vol
+            period_stats[period_48]["vol"] += vol
+
+        return {
+            period: round(stats["cost"] / stats["vol"], 2) if stats["vol"] > 0 else None
+            for period, stats in period_stats.items()
+        }
+
+    def _get_period_48_trends(self, date_list: List[str], spot_type: str) -> List[Period48TrendPoint]:
+        """获取区间内48时段中长期与现货均价对比"""
+        contract_period_vwap = self._get_contract_period_48_trends(date_list)
+        spot_period_vwap = self._get_spot_period_48_trends(date_list, spot_type)
+
+        rows = []
+        for period in range(1, 49):
+            contract_vwap = contract_period_vwap.get(period)
+            spot_vwap = spot_period_vwap.get(period)
+            spread = None
+            if contract_vwap is not None and spot_vwap is not None:
+                spread = round(contract_vwap - spot_vwap, 2)
+
+            rows.append(Period48TrendPoint(
+                period=period,
+                label=f"{period:02d}",
+                contract_vwap=contract_vwap,
+                spot_vwap=spot_vwap,
+                vwap_spread=spread
+            ))
+
+        return rows
 
     def _get_contract_point_counts(self, date_list: List[str]) -> Dict[str, int]:
         """获取每日中长期合同的时段点数（24/48/96）"""
@@ -469,6 +642,13 @@ class ContractPriceTrendService:
         # 3. 获取现货日均值
         spot_daily_vwap = self._get_spot_daily_vwap(date_list, spot_type)
         logger.info(f"[ContractPriceTrendService] 获取现货VWAP: {len(spot_daily_vwap)} 天")
+
+        # 3.1 获取各合同类型48时段均值
+        curve_period_48_data = self._get_contract_period_48_trends_by_type(date_list)
+        logger.info(f"[ContractPriceTrendService] 获取合同类型48时段曲线: {len(curve_period_48_data)} 条")
+
+        # 3.2 获取现货48时段均值
+        spot_period_48_vwap = self._get_spot_period_48_trends(date_list, spot_type)
         
         # 4. 构建曲线数据
         curves = []
@@ -489,7 +669,15 @@ class ContractPriceTrendService:
                     contract_period=config["period"],
                     label=config["label"],
                     color=config["color"],
-                    points=points
+                    points=points,
+                    period_48_points=[
+                        CurvePeriod48Point(
+                            period=period,
+                            label=f"{period:02d}",
+                            vwap=curve_period_48_data.get(curve_key, {}).get(period)
+                        )
+                        for period in range(1, 49)
+                    ]
                 ))
         
         # 5. 构建现货曲线
@@ -507,7 +695,15 @@ class ContractPriceTrendService:
             contract_period="",
             label=spot_label,
             color="#f44336",
-            points=spot_points
+            points=spot_points,
+            period_48_points=[
+                CurvePeriod48Point(
+                    period=period,
+                    label=f"{period:02d}",
+                    vwap=spot_period_48_vwap.get(period)
+                )
+                for period in range(1, 49)
+            ]
         )
         
         return CurveAnalysisResponse(

@@ -30,11 +30,21 @@ class SpreadDistribution(BaseModel):
     count: int = Field(0, description="该区间的时段数")
 
 
+class Period48TrendPoint(BaseModel):
+    """区间聚合后的48时段均价数据点"""
+    period: int = Field(..., ge=1, le=48, description="48时段编号")
+    label: str = Field(..., description="展示标签，如 '01'")
+    contract_vwap: Optional[float] = Field(None, description="区间内中长期合同48时段均价")
+    spot_vwap: Optional[float] = Field(None, description="区间内现货48时段均价")
+    vwap_spread: Optional[float] = Field(None, description="价差 = contract - spot")
+
+
 class ContractPriceTrendResponse(BaseModel):
     """中长期趋势分析响应"""
     daily_trends: List[DailyTrendPoint] = Field(..., description="每日趋势数据")
     spread_stats: SpreadStats = Field(..., description="价差统计指标")
     spread_distribution: List[SpreadDistribution] = Field(..., description="价差分布直方图数据")
+    period_48_trends: List[Period48TrendPoint] = Field(default_factory=list, description="区间聚合后的48时段均价数据")
 
 
 # ========== 曲线分析模型 ==========
@@ -45,6 +55,13 @@ class DailyCurvePoint(BaseModel):
     vwap: Optional[float] = Field(None, description="日均价 (VWAP)")
 
 
+class CurvePeriod48Point(BaseModel):
+    """48时段曲线数据点"""
+    period: int = Field(..., ge=1, le=48, description="48时段编号")
+    label: str = Field(..., description="展示标签，如 '01'")
+    vwap: Optional[float] = Field(None, description="48时段均价 (VWAP)")
+
+
 class CurveData(BaseModel):
     """单条曲线数据"""
     key: str = Field(..., description="曲线标识，如 '市场化-月内'")
@@ -53,6 +70,7 @@ class CurveData(BaseModel):
     label: str = Field(..., description="显示标签")
     color: str = Field(..., description="曲线颜色")
     points: List[DailyCurvePoint] = Field(default_factory=list, description="每日数据点")
+    period_48_points: List[CurvePeriod48Point] = Field(default_factory=list, description="区间聚合后的48时段数据点")
 
 
 class CurveAnalysisResponse(BaseModel):

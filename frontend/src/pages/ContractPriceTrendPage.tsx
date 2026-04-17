@@ -29,19 +29,24 @@ function TabPanel(props: TabPanelProps) {
     const { children, value, index, ...other } = props;
 
     return (
-        <div
+        <Box
             role="tabpanel"
             hidden={value !== index}
             id={`contract-trend-tabpanel-${index}`}
             aria-labelledby={`contract-trend-tab-${index}`}
+            sx={{
+                display: value === index ? 'flex' : 'none',
+                flex: 1,
+                minHeight: 0,
+            }}
             {...other}
         >
             {value === index && (
-                <Box sx={{ pt: 3 }}>
+                <Box sx={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
                     {children}
                 </Box>
             )}
-        </div>
+        </Box>
     );
 }
 
@@ -158,175 +163,194 @@ export const ContractPriceTrendPage: React.FC = () => {
         { icon: <BarChartIcon />, label: '电量结构', mobileLabel: '电量' },
     ];
 
+    const mobileLayoutSx = {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: { xs: 1.5, sm: 2 },
+    } as const;
+
+    const desktopLayoutSx = {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        height: '100%',
+        minHeight: 0,
+        overflow: 'hidden',
+    } as const;
+
     return (
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
-            <Box sx={{ width: '100%' }}>
-                {/* 移动端面包屑标题 */}
-                {isTablet && (
-                    <Typography
-                        variant="subtitle1"
-                        sx={{
-                            mb: 2,
-                            fontWeight: 'bold',
-                            color: 'text.primary'
-                        }}
-                    >
-                        价格分析 / 中长期趋势分析
-                    </Typography>
-                )}
+            <Box
+                sx={{
+                    width: '100%',
+                    height: isTablet ? 'auto' : '100%',
+                    minHeight: isTablet ? '100%' : 0,
+                    bgcolor: 'background.default',
+                    overflowX: 'hidden',
+                    overflowY: isTablet ? 'visible' : 'hidden',
+                }}
+            >
+                <Box sx={isTablet ? mobileLayoutSx : desktopLayoutSx}>
+                    {isTablet && (
+                        <Typography
+                            variant="subtitle1"
+                            sx={{
+                                fontWeight: 'bold',
+                                color: 'text.primary'
+                            }}
+                        >
+                            价格分析 / 中长期趋势分析
+                        </Typography>
+                    )}
 
-                {/* 日期区间选择器 */}
-                <Paper variant="outlined" sx={{ p: 2, mb: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
-                    {/* 日期选择器 */}
-                    <DatePicker
-                        label="开始"
-                        value={startDate}
-                        onChange={(date) => setStartDate(date)}
-                        slotProps={{
-                            textField: {
-                                size: "small",
-                                sx: {
-                                    width: { xs: '105px', sm: '150px' },
-                                    '& .MuiInputBase-input': { fontSize: { xs: '0.8rem', sm: '1rem' }, px: { xs: 1, sm: 1.5 } }
+                    <Paper variant="outlined" sx={{ p: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', width: '100%', flexShrink: 0 }}>
+                        <DatePicker
+                            label="开始"
+                            value={startDate}
+                            onChange={(date) => setStartDate(date)}
+                            slotProps={{
+                                textField: {
+                                    size: "small",
+                                    sx: {
+                                        width: { xs: '105px', sm: '150px' },
+                                        '& .MuiInputBase-input': { fontSize: { xs: '0.8rem', sm: '1rem' }, px: { xs: 1, sm: 1.5 } }
+                                    }
                                 }
-                            }
-                        }}
-                    />
-                    <Typography sx={{ px: 0.5, fontSize: '0.875rem' }}>至</Typography>
-                    <DatePicker
-                        label="结束"
-                        value={endDate}
-                        onChange={(date) => setEndDate(date)}
-                        slotProps={{
-                            textField: {
-                                size: "small",
-                                sx: {
-                                    width: { xs: '105px', sm: '150px' },
-                                    '& .MuiInputBase-input': { fontSize: { xs: '0.8rem', sm: '1rem' }, px: { xs: 1, sm: 1.5 } }
+                            }}
+                        />
+                        <Typography sx={{ px: 0.5, fontSize: '0.875rem' }}>至</Typography>
+                        <DatePicker
+                            label="结束"
+                            value={endDate}
+                            onChange={(date) => setEndDate(date)}
+                            slotProps={{
+                                textField: {
+                                    size: "small",
+                                    sx: {
+                                        width: { xs: '105px', sm: '150px' },
+                                        '& .MuiInputBase-input': { fontSize: { xs: '0.8rem', sm: '1rem' }, px: { xs: 1, sm: 1.5 } }
+                                    }
                                 }
-                            }
-                        }}
-                    />
+                            }}
+                        />
 
-                    {/* 快捷按钮 */}
-                    <Button variant="outlined" size="small" onClick={() => handleQuickSelect('last30')}
-                        sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
-                        近30天
-                    </Button>
-                    <Button variant="outlined" size="small" onClick={() => handleQuickSelect('last60')}
-                        sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
-                        近60天
-                    </Button>
-                    <Button variant="outlined" size="small" onClick={() => handleQuickSelect('thisMonth')}
-                        sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
-                        本月
-                    </Button>
-                    <Button variant="outlined" size="small" onClick={() => handleQuickSelect('lastMonth')}
-                        sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
-                        上月
-                    </Button>
+                        <Button variant="outlined" size="small" onClick={() => handleQuickSelect('last30')}
+                            sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
+                            近30天
+                        </Button>
+                        <Button variant="outlined" size="small" onClick={() => handleQuickSelect('last60')}
+                            sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
+                            近60天
+                        </Button>
+                        <Button variant="outlined" size="small" onClick={() => handleQuickSelect('thisMonth')}
+                            sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
+                            本月
+                        </Button>
+                        <Button variant="outlined" size="small" onClick={() => handleQuickSelect('lastMonth')}
+                            sx={{ minWidth: 'auto', px: 1, fontSize: '0.75rem' }}>
+                            上月
+                        </Button>
 
-                    {/* 基准价格选择 - 放置在最右侧 */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
-                        <Typography variant="body2" color="text.secondary">基准:</Typography>
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                            {['日前', '实时'].map(benchmark => (
-                                <Box
-                                    key={benchmark}
-                                    onClick={() => setSpotBenchmark(benchmark === '日前' ? 'day_ahead' : 'real_time')}
-                                    sx={{
-                                        px: 1,
-                                        py: 0.25,
-                                        borderRadius: 1,
-                                        fontSize: '0.75rem',
-                                        cursor: 'pointer',
-                                        border: '1px solid',
-                                        borderColor: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
-                                            (spotBenchmark === 'real_time' && benchmark === '实时')
-                                            ? '#f44336' : 'divider',
-                                        backgroundColor: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
-                                            (spotBenchmark === 'real_time' && benchmark === '实时')
-                                            ? '#f44336' : 'transparent',
-                                        color: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
-                                            (spotBenchmark === 'real_time' && benchmark === '实时')
-                                            ? 'white' : 'text.primary',
-                                        fontWeight: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
-                                            (spotBenchmark === 'real_time' && benchmark === '实时')
-                                            ? 'bold' : 'normal',
-                                        transition: 'all 0.2s',
-                                        '&:hover': {
-                                            borderColor: '#f44336',
-                                            opacity: 0.8
-                                        }
-                                    }}
-                                >
-                                    {benchmark}
-                                </Box>
-                            ))}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
+                            <Typography variant="body2" color="text.secondary">基准:</Typography>
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                {['日前', '实时'].map(benchmark => (
+                                    <Box
+                                        key={benchmark}
+                                        onClick={() => setSpotBenchmark(benchmark === '日前' ? 'day_ahead' : 'real_time')}
+                                        sx={{
+                                            px: 1,
+                                            py: 0.25,
+                                            borderRadius: 1,
+                                            fontSize: '0.75rem',
+                                            cursor: 'pointer',
+                                            border: '1px solid',
+                                            borderColor: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
+                                                (spotBenchmark === 'real_time' && benchmark === '实时')
+                                                ? '#f44336' : 'divider',
+                                            backgroundColor: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
+                                                (spotBenchmark === 'real_time' && benchmark === '实时')
+                                                ? '#f44336' : 'transparent',
+                                            color: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
+                                                (spotBenchmark === 'real_time' && benchmark === '实时')
+                                                ? 'white' : 'text.primary',
+                                            fontWeight: (spotBenchmark === 'day_ahead' && benchmark === '日前') ||
+                                                (spotBenchmark === 'real_time' && benchmark === '实时')
+                                                ? 'bold' : 'normal',
+                                            transition: 'all 0.2s',
+                                            '&:hover': {
+                                                borderColor: '#f44336',
+                                                opacity: 0.8
+                                            }
+                                        }}
+                                    >
+                                        {benchmark}
+                                    </Box>
+                                ))}
+                            </Box>
                         </Box>
-                    </Box>
-                </Paper>
+                    </Paper>
 
-                <Paper variant="outlined" sx={{ borderColor: 'divider' }}>
-                    <Tabs
-                        value={tabIndex}
-                        onChange={handleTabChange}
-                        aria-label="contract price trend analysis tabs"
-                        variant="scrollable"
-                        scrollButtons="auto"
-                        allowScrollButtonsMobile
-                        sx={{
-                            '& .MuiTabs-scrollButtons': {
-                                '&.Mui-disabled': { opacity: 0.3 }
-                            },
-                            '& .MuiTab-root': {
-                                minWidth: { xs: 60, sm: 120 },
-                                maxWidth: { xs: 'none', sm: 'none' },
-                                fontSize: { xs: '0.75rem', sm: '0.9375rem' },
-                                px: { xs: 0.5, sm: 2 },
-                                minHeight: { xs: 60, sm: 48 },
-                                py: { xs: 1, sm: 1.5 }
-                            }
-                        }}
-                    >
-                        {tabsConfig.map((tab, index) => (
-                            <Tab
-                                key={index}
-                                icon={tab.icon}
-                                iconPosition="top"
-                                label={isMobile ? tab.mobileLabel : tab.label}
-                                id={`contract-trend-tab-${index}`}
-                                aria-controls={`contract-trend-tabpanel-${index}`}
+                    <Paper variant="outlined" sx={{ borderColor: 'divider', flexShrink: 0 }}>
+                        <Tabs
+                            value={tabIndex}
+                            onChange={handleTabChange}
+                            aria-label="contract price trend analysis tabs"
+                            variant="scrollable"
+                            scrollButtons="auto"
+                            allowScrollButtonsMobile
+                            sx={{
+                                '& .MuiTabs-scrollButtons': {
+                                    '&.Mui-disabled': { opacity: 0.3 }
+                                },
+                                '& .MuiTab-root': {
+                                    minWidth: { xs: 60, sm: 120 },
+                                    maxWidth: { xs: 'none', sm: 'none' },
+                                    fontSize: { xs: '0.75rem', sm: '0.9375rem' },
+                                    px: { xs: 0.5, sm: 2 },
+                                    minHeight: { xs: 60, sm: 48 },
+                                    py: { xs: 1, sm: 1.5 }
+                                }
+                            }}
+                        >
+                            {tabsConfig.map((tab, index) => (
+                                <Tab
+                                    key={index}
+                                    icon={tab.icon}
+                                    iconPosition="top"
+                                    label={isMobile ? tab.mobileLabel : tab.label}
+                                    id={`contract-trend-tab-${index}`}
+                                    aria-controls={`contract-trend-tabpanel-${index}`}
+                                />
+                            ))}
+                        </Tabs>
+                    </Paper>
+
+                    <Box sx={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: isTablet ? 'visible' : 'hidden' }}>
+                        <TabPanel value={tabIndex} index={0}>
+                            <PriceTrendTab
+                                data={trendData.data}
+                                loading={trendLoading}
+                                error={trendError}
+                                spotBenchmark={spotBenchmark}
                             />
-                        ))}
-                    </Tabs>
-                </Paper>
-
-                {/* TabPanel 容器 */}
-                <Box sx={{ position: 'relative' }}>
-                    <TabPanel value={tabIndex} index={0}>
-                        <PriceTrendTab
-                            data={trendData.data}
-                            loading={trendLoading}
-                            error={trendError}
-                            spotBenchmark={spotBenchmark}
-                        />
-                    </TabPanel>
-                    <TabPanel value={tabIndex} index={1}>
-                        <CurveCompareTab
-                            startDate={startDate}
-                            endDate={endDate}
-                            spotBenchmark={spotBenchmark}
-                            dateRange={startDate && endDate ? `${format(startDate, 'yyyy-MM-dd')} ~ ${format(endDate, 'yyyy-MM-dd')}` : ''}
-                        />
-                    </TabPanel>
-                    <TabPanel value={tabIndex} index={2}>
-                        <QuantityStructureTab
-                            startDate={startDate}
-                            endDate={endDate}
-                            dateRange={startDate && endDate ? `${format(startDate, 'yyyy-MM-dd')} ~ ${format(endDate, 'yyyy-MM-dd')}` : ''}
-                        />
-                    </TabPanel>
+                        </TabPanel>
+                        <TabPanel value={tabIndex} index={1}>
+                            <CurveCompareTab
+                                startDate={startDate}
+                                endDate={endDate}
+                                spotBenchmark={spotBenchmark}
+                                dateRange={startDate && endDate ? `${format(startDate, 'yyyy-MM-dd')} ~ ${format(endDate, 'yyyy-MM-dd')}` : ''}
+                            />
+                        </TabPanel>
+                        <TabPanel value={tabIndex} index={2}>
+                            <QuantityStructureTab
+                                startDate={startDate}
+                                endDate={endDate}
+                                dateRange={startDate && endDate ? `${format(startDate, 'yyyy-MM-dd')} ~ ${format(endDate, 'yyyy-MM-dd')}` : ''}
+                            />
+                        </TabPanel>
+                    </Box>
                 </Box>
             </Box>
         </LocalizationProvider>
