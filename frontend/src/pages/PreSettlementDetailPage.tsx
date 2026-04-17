@@ -822,7 +822,7 @@ const PreSettlementDetailPage: React.FC<{ initialDate?: string, initialVersion?:
                                 {/* 中长期 */}
                                 <TableCell align="right" sx={{ fontWeight: 500, color: '#1565c0', bgcolor: '#f0f7ff', display: { xs: 'none', lg: 'table-cell' } }}>合同电量<br /><Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.75 }}>①</Box></TableCell>
                                 <TableCell align="right" sx={{ fontWeight: 500, color: '#1565c0', bgcolor: '#f0f7ff', display: { xs: 'none', lg: 'table-cell' } }}>合同均价<br /><Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.75 }}>②</Box></TableCell>
-                                <TableCell align="right" sx={{ fontWeight: 500, color: '#1565c0', bgcolor: '#f0f7ff', display: { xs: 'none', lg: 'table-cell' } }}>差价电费<br /><Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.75 }}>③=①×(②-⑤)</Box></TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 500, color: '#1565c0', bgcolor: '#f0f7ff', display: { xs: 'none', lg: 'table-cell' } }}>差价电费<br /><Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.75 }}>③=①×(②-⑧)</Box></TableCell>
                                 {/* 日前 */}
                                 <TableCell align="right" sx={{ fontWeight: 500, color: '#ef6c00', bgcolor: '#fff9f0', display: { xs: 'none', lg: 'table-cell' } }}>出清电量<br /><Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.75 }}>④</Box></TableCell>
                                 <TableCell align="right" sx={{ fontWeight: 500, color: '#ef6c00', bgcolor: '#fff9f0', display: { xs: 'none', lg: 'table-cell' } }}>市场均价<br /><Box component="span" sx={{ fontSize: '0.6rem', opacity: 0.75 }}>⑤</Box></TableCell>
@@ -988,7 +988,7 @@ const PreSettlementDetailPage: React.FC<{ initialDate?: string, initialVersion?:
                                     <Typography variant="subtitle2" color="primary" sx={{ mb: 1, fontWeight: 'bold' }}>中长期合约 (Section 1)</Typography>
                                     {renderDetailItem("合同电量", (selectedWholesaleRow.contract?.volume ?? 0).toFixed(3), "①")}
                                     {renderDetailItem("合同均价", (selectedWholesaleRow.contract?.price ?? 0).toFixed(2), "②")}
-                                    {renderDetailItem("差价电费", (selectedWholesaleRow.contract?.fee ?? 0).toFixed(2), "③ = ① × (② - ⑤)")}
+                                    {renderDetailItem("差价电费", (selectedWholesaleRow.contract?.fee ?? 0).toFixed(2), "③ = ① × (② - ⑧)")}
                                 </Grid>
 
                                 <Grid size={{ xs: 12 }}>

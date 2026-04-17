@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from pydantic import BaseModel
 from datetime import datetime
 from fastapi.responses import StreamingResponse
@@ -14,6 +14,44 @@ router = APIRouter(prefix="/settlement", tags=["Settlement"])
 
 service = SettlementService()
 export_service = ExportService()
+
+
+def _extract_contract_export_series(contract_doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    volumes = [0.0] * 48
+    prices = [0.0] * 48
+    if contract_doc:
+        for item in contract_doc.get("periods", []):
+            period = int(item.get("period", 0) or 0)
+            if 1 <= period <= 48:
+                idx = period - 1
+                volumes[idx] = float(item.get("quantity_mwh", 0) or 0)
+                prices[idx] = float(item.get("price_yuan_per_mwh", 0) or 0)
+    return {
+        "volumes": volumes,
+        "prices": prices,
+        "daily_avg_price": float(contract_doc.get("daily_avg_price", 0) or 0) if contract_doc else 0.0,
+    }
+
+
+def _build_wholesale_export_context(date_str: str) -> Dict[str, Any]:
+    db = service.db
+
+    def load_contract(entity: str, contract_period: str) -> Optional[Dict[str, Any]]:
+        return db.contracts_aggregated_daily.find_one({
+            "date": date_str,
+            "entity": entity,
+            "contract_type": "整体",
+            "contract_period": contract_period,
+        })
+
+    return {
+        "market_contract_avg": _extract_contract_export_series(load_contract("全市场", "整体")),
+        "contract_breakdown": {
+            "年度": _extract_contract_export_series(load_contract("售电公司", "年度")),
+            "月度": _extract_contract_export_series(load_contract("售电公司", "月度")),
+            "月内": _extract_contract_export_series(load_contract("售电公司", "月内")),
+        },
+    }
 
 class CalculationRequest(BaseModel):
     date: str
@@ -344,7 +382,8 @@ async def export_wholesale_settlement(
             raise HTTPException(status_code=404, detail="No settlement data found")
         
         version_label = "预结算" if version == SettlementVersion.PRELIMINARY else "确权版"
-        excel_stream = export_service.export_wholesale_to_excel(date, version_label, data)
+        export_context = _build_wholesale_export_context(date)
+        excel_stream = export_service.export_wholesale_to_excel(date, version_label, data, export_context)
         
         filename = f"批发侧结算_{date}_{version_label}.xlsx"
         # 兼容中文文件名
