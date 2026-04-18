@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Box,
     AppBar,
@@ -30,6 +30,7 @@ import { useTabContext } from '../contexts/TabContext';
 import { routeConfigs } from '../config/routes';
 import { useAuth } from '../contexts/AuthContext';
 import { changeMyPassword, updateMyProfile } from '../api/authManagement';
+import { navigateBackWithFallback, seedMobileBackHistory } from '../utils/mobileNavigation';
 
 const drawerWidth = 260;
 
@@ -78,12 +79,20 @@ export const MobileSimpleLayout: React.FC = () => {
         if (activeTabKey) {
             removeTab(activeTabKey);
         } else {
-            navigate(-1);
+            navigateBackWithFallback(navigate, location.pathname, location.search);
         }
     };
 
     const isRoot = location.pathname === '/' || location.pathname === '';
     const showBackButton = activeTab || !isRoot;
+
+    useEffect(() => {
+        if (activeTabKey) {
+            return;
+        }
+
+        seedMobileBackHistory(location.pathname, location.search);
+    }, [activeTabKey, location.pathname, location.search]);
 
     const handleAccountMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
         setAnchorEl(event.currentTarget);

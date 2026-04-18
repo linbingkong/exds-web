@@ -22,13 +22,14 @@ import {
     Area, AreaChart, ComposedChart, Cell, PieChart, Pie, Sector, ReferenceArea,
     RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { loadCharacteristicsApi, CustomerCharacteristics, AnomalyAlertItem, AnalysisHistoryItem } from '../api/loadCharacteristics';
 import customerApi from '../api/customer';
 import { useChartFullscreen } from '../hooks/useChartFullscreen';
 import { getTouSummary, TouSummary } from '../api/tou';
 import { useTouPeriodBackground, TouPeriodData } from '../hooks/useTouPeriodBackground';
 import { useAuth } from '../contexts/AuthContext';
+import { navigateBackWithFallback } from '../utils/mobileNavigation';
 
 // --- Shared Components ---
 
@@ -1254,6 +1255,7 @@ const LoadCharacteristicsDetailPage: React.FC<{ customerId?: string }> = (props)
     const params = useParams<{ customerId: string }>();
     const customerId = props.customerId || params.customerId;
     const navigate = useNavigate();
+    const location = useLocation();
 
     const [data, setData] = useState<CustomerCharacteristics | null>(null);
     const [loading, setLoading] = useState(false);
@@ -1284,7 +1286,11 @@ const LoadCharacteristicsDetailPage: React.FC<{ customerId?: string }> = (props)
             {/* Optional Back Button */}
             {!props.customerId && (
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-                    <IconButton onClick={() => navigate(-1)} size="small" sx={{ bgcolor: 'background.paper', border: '1px solid #e0e0e0' }}>
+                    <IconButton
+                        onClick={() => navigateBackWithFallback(navigate, location.pathname, location.search)}
+                        size="small"
+                        sx={{ bgcolor: 'background.paper', border: '1px solid #e0e0e0' }}
+                    >
                         <ArrowBackIcon fontSize="small" />
                     </IconButton>
                     <Typography variant="h6" color="text.primary">客户详情</Typography>
