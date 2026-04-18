@@ -19,6 +19,7 @@ VIEW_PERMISSION = "module:strategy_dayahead:view"
 EDIT_PERMISSION = "module:strategy_dayahead:edit"
 PERIOD_COUNT = 48
 SETTLEMENT_BASE_PRICE = 300
+DEFAULT_NODE_SPOT_PRICE_NAME = "凌云站/500kV.Ⅰ母"
 
 TradeType = Literal["auto", "manual", "real"]
 TradeSourceStatus = Literal["启用", "停用"]
@@ -84,6 +85,7 @@ class SimulationDetailModel(BaseModel):
     strategy_code: str = ""
     next_day_declare_status: DeclareStatus
     summary: SimulationSummaryModel
+    expected_pnl_yuan: Optional[float] = None
     price_forecast_30m: List[float]
     bid_mwh_30m: List[float]
     is_editable: bool
@@ -163,7 +165,7 @@ class ProfitDailyResponseModel(BaseModel):
 
 
 class DailyReviewSummaryModel(BaseModel):
-    expected_pnl_yuan: float
+    expected_pnl_yuan: Optional[float] = None
     realized_pnl_yuan: float
     total_bid_mwh: float
     win_periods: int
@@ -175,13 +177,14 @@ class DailyReviewRowModel(BaseModel):
     period: int
     time_label: str
     price_forecast_yuan_per_mwh: float
-    dayahead_price_yuan_per_mwh: float
-    econ_price_yuan_per_mwh: float
-    realtime_price_yuan_per_mwh: float
+    dayahead_price_yuan_per_mwh: Optional[float]
+    econ_price_yuan_per_mwh: Optional[float]
+    realtime_price_yuan_per_mwh: Optional[float]
+    node_realtime_price_yuan_per_mwh: Optional[float] = None
     bid_mwh: float
-    spread_yuan_per_mwh: float
-    period_pnl_yuan: float
-    result_flag: Literal["盈利", "亏损", "持平"]
+    spread_yuan_per_mwh: Optional[float]
+    period_pnl_yuan: Optional[float]
+    result_flag: Literal["盈利", "亏损", "持平", "待发布"]
 
 
 class DailyReviewDetailModel(BaseModel):
@@ -244,6 +247,96 @@ def _coerce_curve(values: Any) -> List[float]:
     if not isinstance(values, list):
         return []
     return [_round(float(item or 0), 1) for item in values[:PERIOD_COUNT]]
+
+
+def _safe_finite_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric_value if math.isfinite(numeric_value) else None
+
+
+def _build_node_15m_price_map(points: List[Dict[str, Any]]) -> Dict[str, float]:
+    if not points:
+        return {}
+
+    raw_price_map: Dict[str, float] = {}
+    for point in points:
+        time_str = point.get("time")
+        cq_price = _safe_finite_float(point.get("cq_price"))
+        if time_str and cq_price is not None:
+            raw_price_map[str(time_str)] = cq_price
+
+    aggregated_map: Dict[str, float] = {}
+    for quarter_index in range(1, 97):
+        total_minutes = quarter_index * 15
+        quarter_time = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+        window_times = []
+        for offset in (10, 5, 0):
+            point_minutes = total_minutes - offset
+            point_time = "24:00" if point_minutes == 1440 else f"{point_minutes // 60:02d}:{point_minutes % 60:02d}"
+            window_times.append(point_time)
+        if all(time_key in raw_price_map for time_key in window_times):
+            aggregated_map[quarter_time] = round(sum(raw_price_map[time_key] for time_key in window_times) / 3, 2)
+    return aggregated_map
+
+
+def _build_time_labels_48() -> List[str]:
+    labels: List[str] = []
+    for period in range(PERIOD_COUNT):
+        end_minutes = (period + 1) * 30
+        labels.append("24:00" if end_minutes == 1440 else f"{end_minutes // 60:02d}:{end_minutes % 60:02d}")
+    return labels
+
+
+def _load_live_realtime_curves_48(target_date: str) -> Dict[str, List[Optional[float]]]:
+    rt_docs = list(
+        DATABASE["real_time_spot_price"].find(
+            {"date_str": target_date},
+            {"_id": 0, "time_str": 1, "avg_clearing_price": 1, "arithmetic_avg_clearing_price": 1},
+        ).sort("datetime", 1)
+    )
+    rt_map = {
+        str(doc.get("time_str")): _safe_finite_float(
+            doc.get("avg_clearing_price")
+            if doc.get("avg_clearing_price") is not None
+            else doc.get("arithmetic_avg_clearing_price")
+        )
+        for doc in rt_docs
+        if doc.get("time_str")
+    }
+    has_rt_published = any(value is not None for value in rt_map.values())
+
+    node_map: Dict[str, float] = {}
+    if not has_rt_published:
+        node_daily_doc = DATABASE["node_spot_price_daily"].find_one(
+            {"node_name": DEFAULT_NODE_SPOT_PRICE_NAME, "date": target_date},
+            {"_id": 0, "points": 1},
+        )
+        node_map = _build_node_15m_price_map((node_daily_doc or {}).get("points", []))
+
+    rt_curve: List[Optional[float]] = []
+    node_curve: List[Optional[float]] = []
+    for time_label in _build_time_labels_48():
+        rt_value = rt_map.get(time_label)
+        node_value = node_map.get(time_label)
+        display_value = rt_value if rt_value is not None else node_value
+        rt_curve.append(_round(display_value, 2) if display_value is not None else None)
+        node_curve.append(_round(node_value, 2) if node_value is not None else None)
+    return {
+        "realtime_price_30m": rt_curve,
+        "node_realtime_price_30m": node_curve,
+    }
+
+
+def _curve_value(values: Any, index: int, digits: int = 2) -> Optional[float]:
+    if not isinstance(values, list) or index >= len(values):
+        return None
+    numeric_value = _safe_finite_float(values[index])
+    return _round(numeric_value, digits) if numeric_value is not None else None
 
 
 def _pick_price_curve(result_doc: Dict[str, Any]) -> List[float]:
@@ -309,11 +402,12 @@ def _adapt_trade_review_to_result(trade_source: Dict[str, Any], review: DayAhead
     settlement_field = _settlement_price_field(review)
     bid_curve: List[float] = []
     forecast_curve: List[float] = []
-    dayahead_curve: List[float] = []
-    econ_curve: List[float] = []
-    rt_curve: List[float] = []
-    spread_curve: List[float] = []
-    period_pnl_curve: List[float] = []
+    dayahead_curve: List[Optional[float]] = []
+    econ_curve: List[Optional[float]] = []
+    rt_curve: List[Optional[float]] = []
+    node_rt_curve: List[Optional[float]] = []
+    spread_curve: List[Optional[float]] = []
+    period_pnl_curve: List[Optional[float]] = []
     win_periods = 0
     loss_periods = 0
     active_spreads: List[float] = []
@@ -322,47 +416,54 @@ def _adapt_trade_review_to_result(trade_source: Dict[str, Any], review: DayAhead
         row = review.chart_rows[index] if index < len(review.chart_rows) else None
         bid = _round(float((row.declared_mwh if row else 0) or 0), 1)
         forecast = _round(float((row.price_da_forecast if row and row.price_da_forecast is not None else 0) or 0), 2)
-        dayahead = _round(float((row.price_da if row and row.price_da is not None else 0) or 0), 2)
-        econ = _round(float((row.price_da_econ if row and row.price_da_econ is not None else 0) or 0), 2)
-        realtime = _round(float((row.price_rt if row and row.price_rt is not None else 0) or 0), 2)
+        dayahead = _round(float(row.price_da), 2) if row and row.price_da is not None else None
+        econ = _round(float(row.price_da_econ), 2) if row and row.price_da_econ is not None else None
+        realtime = _round(float(row.price_rt), 2) if row and row.price_rt is not None else None
+        node_realtime = _round(float((row.node_price_rt if row and row.node_price_rt is not None else 0) or 0), 2) if row and row.node_price_rt is not None else None
         settlement_price = getattr(row, settlement_field, None) if row else None
-        spread = _round(float(realtime - settlement_price), 2) if row and settlement_price is not None and row.price_rt is not None else 0.0
-        period_pnl = _round(spread * bid, 2) if bid > 0 else 0.0
-        if bid > 0:
+        spread = _round(float(realtime - settlement_price), 2) if row and settlement_price is not None and realtime is not None else None
+        period_pnl = _round(spread * bid, 2) if bid > 0 and spread is not None else None
+        if bid > 0 and spread is not None:
             active_spreads.append(spread)
-            if period_pnl > 0:
+            if period_pnl is not None and period_pnl > 0:
                 win_periods += 1
-            elif period_pnl < 0:
+            elif period_pnl is not None and period_pnl < 0:
                 loss_periods += 1
         bid_curve.append(bid)
         forecast_curve.append(forecast)
         dayahead_curve.append(dayahead)
         econ_curve.append(econ)
         rt_curve.append(realtime)
+        node_rt_curve.append(node_realtime)
         spread_curve.append(spread)
         period_pnl_curve.append(period_pnl)
 
     daily_bid = _round(sum(bid_curve), 1)
     expected_pnl = _round(
-        sum((forecast_curve[index] - (econ_curve[index] if settlement_field == "price_da_econ" else dayahead_curve[index])) * bid_curve[index] for index in range(PERIOD_COUNT)),
+        sum(
+            (forecast_curve[index] - settlement_price) * bid_curve[index]
+            for index in range(PERIOD_COUNT)
+            for settlement_price in [econ_curve[index] if settlement_field == "price_da_econ" else dayahead_curve[index]]
+            if settlement_price is not None
+        ),
         2,
     )
     realized_pnl = _round(
         review.execution_analysis_summary.total_profit_amount
         if review.execution_analysis_summary is not None
-        else sum(period_pnl_curve),
+        else sum(value for value in period_pnl_curve if value is not None),
         2,
     )
     profitable_amount = _round(
         review.execution_analysis_summary.profit_amount
         if review.execution_analysis_summary is not None
-        else sum(value for value in period_pnl_curve if value > 0),
+        else sum(value for value in period_pnl_curve if value is not None and value > 0),
         2,
     )
     loss_amount = _round(
         -abs(review.execution_analysis_summary.loss_amount)
         if review.execution_analysis_summary is not None
-        else sum(value for value in period_pnl_curve if value < 0),
+        else sum(value for value in period_pnl_curve if value is not None and value < 0),
         2,
     )
 
@@ -393,6 +494,7 @@ def _adapt_trade_review_to_result(trade_source: Dict[str, Any], review: DayAhead
         "dayahead_price_30m": dayahead_curve,
         "econ_price_30m": econ_curve,
         "rt_price_30m": rt_curve,
+        "node_rt_price_30m": node_rt_curve,
         "settlement_spread": spread_curve,
         "period_pnl": period_pnl_curve,
         "created_at": _parse_date(review.target_date),
@@ -862,8 +964,81 @@ def _get_strategy_result_or_404(trade_source: Dict[str, Any], target_date: str, 
         return _adapt_trade_review_to_result(trade_source, _real_trade_review_or_404(target_date, detail))
     result = _ensure_strategy_result(trade_source, target_date)
     if result:
-        return result
+        return _overlay_review_market_prices(result, target_date)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+
+
+def _overlay_review_market_prices(result: Dict[str, Any], target_date: str) -> Dict[str, Any]:
+    try:
+        review = _real_trade_review_or_404(target_date, "未找到对应日期的复盘记录")
+    except HTTPException:
+        return result
+
+    settlement_field = _settlement_price_field(review)
+    bid_curve = _coerce_curve(result.get("bid_mwh"))
+    forecast_curve = _resolve_dayahead_forecast_curve(target_date, result)
+    existing_da_curve = _coerce_curve(result.get("dayahead_price_30m"))
+    existing_econ_curve = _coerce_curve(result.get("econ_price_30m"))
+    live_rt_payload = _load_live_realtime_curves_48(target_date)
+    live_rt_curve = live_rt_payload["realtime_price_30m"]
+    node_rt_curve = live_rt_payload["node_realtime_price_30m"]
+
+    if len(bid_curve) < PERIOD_COUNT:
+        bid_curve = bid_curve + [0.0] * (PERIOD_COUNT - len(bid_curve))
+    if len(forecast_curve) < PERIOD_COUNT:
+        forecast_curve = forecast_curve + [0.0] * (PERIOD_COUNT - len(forecast_curve))
+    if len(existing_da_curve) < PERIOD_COUNT:
+        existing_da_curve = existing_da_curve + [0.0] * (PERIOD_COUNT - len(existing_da_curve))
+    if len(existing_econ_curve) < PERIOD_COUNT:
+        existing_econ_curve = existing_econ_curve + [0.0] * (PERIOD_COUNT - len(existing_econ_curve))
+
+    merged_da_curve: List[Optional[float]] = []
+    merged_econ_curve: List[Optional[float]] = []
+    merged_rt_curve: List[Optional[float]] = []
+    spread_curve: List[Optional[float]] = []
+    period_pnl_curve: List[Optional[float]] = []
+    win_periods = 0
+    loss_periods = 0
+    active_spreads: List[float] = []
+    realized_pnl_values: List[float] = []
+
+    for index in range(PERIOD_COUNT):
+        row = review.chart_rows[index] if index < len(review.chart_rows) else None
+        merged_da = _round(float(row.price_da), 2) if row and row.price_da is not None else existing_da_curve[index]
+        merged_econ = _round(float(row.price_da_econ), 2) if row and row.price_da_econ is not None else existing_econ_curve[index]
+        merged_rt = live_rt_curve[index] if index < len(live_rt_curve) else None
+        settlement_price = merged_econ if settlement_field == "price_da_econ" else merged_da
+        spread = _round(merged_rt - settlement_price, 2) if settlement_price is not None and merged_rt is not None else None
+        period_pnl = _round(spread * bid_curve[index], 2) if spread is not None and bid_curve[index] > 0 else None
+
+        if bid_curve[index] > 0 and spread is not None:
+            active_spreads.append(spread)
+            if period_pnl is not None and period_pnl > 0:
+                win_periods += 1
+            elif period_pnl is not None and period_pnl < 0:
+                loss_periods += 1
+        if period_pnl is not None:
+            realized_pnl_values.append(period_pnl)
+
+        merged_da_curve.append(merged_da)
+        merged_econ_curve.append(merged_econ)
+        merged_rt_curve.append(merged_rt)
+        spread_curve.append(spread)
+        period_pnl_curve.append(period_pnl)
+
+    return {
+        **result,
+        "dayahead_price_30m": merged_da_curve,
+        "econ_price_30m": merged_econ_curve,
+        "rt_price_30m": merged_rt_curve,
+        "node_rt_price_30m": node_rt_curve,
+        "settlement_spread": spread_curve,
+        "period_pnl": period_pnl_curve,
+        "daily_realized_pnl": _round(sum(realized_pnl_values), 2),
+        "daily_win_periods": win_periods,
+        "daily_loss_periods": loss_periods,
+        "daily_avg_spread": _round(sum(active_spreads) / len(active_spreads), 2) if active_spreads else 0.0,
+    }
 
 
 def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any], next_status: DeclareStatus = "已申报") -> SimulationDetailModel:
@@ -872,6 +1047,7 @@ def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any
     declaration_time = _serialize_timestamp(result_doc.get("updated_at")) or _serialize_timestamp(result_doc.get("created_at"))
     price_curve = _resolve_dayahead_forecast_curve(target_date, result_doc)
     bid_curve = _coerce_curve(result_doc.get("bid_mwh"))
+    expected_pnl = result_doc.get("daily_expected_pnl")
     if len(bid_curve) < PERIOD_COUNT:
         bid_curve = bid_curve + [0.0] * (PERIOD_COUNT - len(bid_curve))
     return SimulationDetailModel(
@@ -885,6 +1061,11 @@ def _simulation_response(trade_source: Dict[str, Any], result_doc: Dict[str, Any
         strategy_code=str(trade_source.get("strategy_code") or ""),
         next_day_declare_status=next_status,
         summary=SimulationSummaryModel(**_summarize_bid_curve(bid_curve)),
+        expected_pnl_yuan=(
+            None
+            if trade_source.get("source_kind") == "real_trade" or expected_pnl is None
+            else _round(float(expected_pnl or 0), 2)
+        ),
         price_forecast_30m=price_curve if len(price_curve) == PERIOD_COUNT else price_curve + [0.0] * (PERIOD_COUNT - len(price_curve)),
         bid_mwh_30m=bid_curve,
         is_editable=is_editable,
@@ -1031,9 +1212,11 @@ def _daily_review_from_result(trade_source: Dict[str, Any], result: Dict[str, An
     forecast_curve = _resolve_dayahead_forecast_curve(target_date, result)
     rows: List[DailyReviewRowModel] = []
     for index in range(PERIOD_COUNT):
-        period_pnl = float((result.get("period_pnl") or [0] * PERIOD_COUNT)[index] or 0)
-        if period_pnl > 0:
-            result_flag: Literal["盈利", "亏损", "持平"] = "盈利"
+        period_pnl = _curve_value(result.get("period_pnl"), index, 2)
+        if period_pnl is None:
+            result_flag: Literal["盈利", "亏损", "持平", "待发布"] = "待发布"
+        elif period_pnl > 0:
+            result_flag = "盈利"
         elif period_pnl < 0:
             result_flag = "亏损"
         else:
@@ -1043,12 +1226,13 @@ def _daily_review_from_result(trade_source: Dict[str, Any], result: Dict[str, An
                 period=index + 1,
                 time_label=_period_label(index),
                 price_forecast_yuan_per_mwh=forecast_curve[index] if index < len(forecast_curve) else 0.0,
-                dayahead_price_yuan_per_mwh=_round(float((result.get("dayahead_price_30m") or [0] * PERIOD_COUNT)[index] or 0), 2),
-                econ_price_yuan_per_mwh=_round(float((result.get("econ_price_30m") or [0] * PERIOD_COUNT)[index] or 0), 2),
-                realtime_price_yuan_per_mwh=_round(float((result.get("rt_price_30m") or [0] * PERIOD_COUNT)[index] or 0), 2),
+                dayahead_price_yuan_per_mwh=_curve_value(result.get("dayahead_price_30m"), index, 2),
+                econ_price_yuan_per_mwh=_curve_value(result.get("econ_price_30m"), index, 2),
+                realtime_price_yuan_per_mwh=_curve_value(result.get("rt_price_30m"), index, 2),
+                node_realtime_price_yuan_per_mwh=_curve_value(result.get("node_rt_price_30m"), index, 2),
                 bid_mwh=_round(float((result.get("bid_mwh") or [0] * PERIOD_COUNT)[index] or 0), 1),
-                spread_yuan_per_mwh=_round(float((result.get("settlement_spread") or [0] * PERIOD_COUNT)[index] or 0), 2),
-                period_pnl_yuan=_round(period_pnl, 2),
+                spread_yuan_per_mwh=_curve_value(result.get("settlement_spread"), index, 2),
+                period_pnl_yuan=period_pnl,
                 result_flag=result_flag,
             )
         )
@@ -1057,7 +1241,11 @@ def _daily_review_from_result(trade_source: Dict[str, Any], result: Dict[str, An
         trade_source_name=trade_source["trade_source_name"],
         target_date=target_date,
         summary=DailyReviewSummaryModel(
-            expected_pnl_yuan=_round(float(result.get("daily_expected_pnl") or 0), 2),
+            expected_pnl_yuan=(
+                None
+                if trade_source.get("source_kind") == "real_trade"
+                else _round(float(result.get("daily_expected_pnl") or 0), 2)
+            ),
             realized_pnl_yuan=_round(float(result.get("daily_realized_pnl") or 0), 2),
             total_bid_mwh=_round(float(result.get("daily_bid_mwh") or 0), 1),
             win_periods=int(result.get("daily_win_periods") or 0),

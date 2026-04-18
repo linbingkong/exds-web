@@ -94,6 +94,10 @@ const formatProfitPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
 
 const formatProfitRatio = (value: number) => (value > 0 ? value.toFixed(2) : '--');
 
+const formatReviewMetric = (value: number | null | undefined, digits = 2, suffix = '') => (
+    value === null || value === undefined || !Number.isFinite(value) ? '-' : `${value.toFixed(digits)}${suffix}`
+);
+
 const getMatchedParamDocMeta = (param: Pick<TradeSourceParam, 'param_key' | 'param_name'>) => {
     const key = (param.param_key || '').trim();
     const name = (param.param_name || '').trim();
@@ -162,7 +166,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     const [profitTooltipPosition, setProfitTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
     const [profitTab, setProfitTab] = useState(0);
 
-    const [reviewTargetDate, setReviewTargetDate] = useState<Date | null>(addDays(new Date(), -1));
+    const [reviewTargetDate, setReviewTargetDate] = useState<Date | null>(new Date());
     const [reviewTab, setReviewTab] = useState(0);
     const [dailyReview, setDailyReview] = useState<DailyReviewDetail | null>(null);
     const [reviewHoveredPeriod, setReviewHoveredPeriod] = useState<number | null>(null);
@@ -234,7 +238,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     }, [selectedTradeSourceId, activePanel]);
 
     useEffect(() => {
-        if (!selectedTradeSourceId || !profitStartDate || !profitEndDate || activePanel !== 1) return;
+        if (!selectedTradeSourceId || !profitStartDate || !profitEndDate || activePanel !== 2) return;
         let cancelled = false;
         const startDate = format(profitStartDate, 'yyyy-MM-dd');
         const endDate = format(profitEndDate, 'yyyy-MM-dd');
@@ -268,7 +272,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     }, [selectedTradeSourceId, profitStartDate, profitEndDate, profitMetric, activePanel]);
 
     useEffect(() => {
-        if (!selectedTradeSourceId || !reviewTargetDate || activePanel !== 2) return;
+        if (!selectedTradeSourceId || !reviewTargetDate || activePanel !== 1) return;
         let cancelled = false;
         const targetDate = format(reviewTargetDate, 'yyyy-MM-dd');
         const cacheKey = `${selectedTradeSourceId}|${targetDate}`;
@@ -414,15 +418,26 @@ export const DayAheadSimulationPage: React.FC = () => {
 
     const reviewChartRows = useMemo(() => (
         dailyReview?.chart_rows.map((row) => {
-            const econPrice = row.econ_price_yuan_per_mwh ?? 0;
-            const realtimePrice = row.realtime_price_yuan_per_mwh ?? 0;
+            const econPrice = row.econ_price_yuan_per_mwh;
+            const realtimePrice = row.realtime_price_yuan_per_mwh;
+            const nodeRealtimePrice = row.node_realtime_price_yuan_per_mwh ?? null;
+            const displayRealtimePrice = realtimePrice ?? nodeRealtimePrice;
+            const hasBothPrices = econPrice !== null && econPrice !== undefined && displayRealtimePrice !== null && displayRealtimePrice !== undefined;
             return {
                 ...row,
-                positivePriceBase: econPrice,
-                positivePriceGap: Math.max(realtimePrice - econPrice, 0),
-                negativePriceBase: realtimePrice,
-                negativePriceGap: Math.max(econPrice - realtimePrice, 0),
-                barColor: row.period_pnl_yuan >= 0 ? '#16a34a' : '#f97316',
+                nodeRealtimePrice,
+                displayRealtimePrice,
+                positivePriceBase: hasBothPrices ? econPrice : null,
+                positivePriceGap: hasBothPrices ? Math.max(displayRealtimePrice - econPrice, 0) : null,
+                negativePriceBase: hasBothPrices ? displayRealtimePrice : null,
+                negativePriceGap: hasBothPrices ? Math.max(econPrice - displayRealtimePrice, 0) : null,
+                barColor: row.period_pnl_yuan === null || row.period_pnl_yuan === undefined
+                    ? '#94a3b8'
+                    : row.period_pnl_yuan > 0
+                    ? '#16a34a'
+                    : row.period_pnl_yuan < 0
+                    ? '#f97316'
+                    : '#cbd5e1',
             };
         }) ?? []
     ), [dailyReview]);
@@ -430,6 +445,11 @@ export const DayAheadSimulationPage: React.FC = () => {
     const reviewHoveredRow = useMemo(
         () => reviewChartRows.find((row) => row.period === reviewHoveredPeriod) ?? null,
         [reviewChartRows, reviewHoveredPeriod],
+    );
+
+    const hasNodeRealtimeFallback = useMemo(
+        () => reviewChartRows.some((row) => row.nodeRealtimePrice !== null && row.nodeRealtimePrice !== undefined),
+        [reviewChartRows],
     );
 
     const reviewPriceDomain = useMemo<[number, number]>(() => {
@@ -498,7 +518,7 @@ export const DayAheadSimulationPage: React.FC = () => {
         const maxLoss = Math.min(...realizedValues, 0);
         return [
             { title: '当日收益', value: formatProfitAmountWan(dailyReview.summary.realized_pnl_yuan), color: dailyReview.summary.realized_pnl_yuan >= 0 ? '#dc2626' : '#2563eb' },
-            { title: '预期收益', value: formatProfitAmountWan(dailyReview.summary.expected_pnl_yuan) },
+            { title: '预期收益', value: dailyReview.summary.expected_pnl_yuan === null ? '-' : formatProfitAmountWan(dailyReview.summary.expected_pnl_yuan) },
             { title: '申报电量', value: `${totalBidMwh.toFixed(1)} MWh` },
             { title: '申报时段数', value: `${activeRows.length}` },
             { title: '时段胜率', value: totalSettledPeriods > 0 ? formatProfitPercent(dailyReview.summary.win_periods / totalSettledPeriods) : '-' },
@@ -532,7 +552,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     const openDailyReviewFromProfitRow = (date: string) => {
         setReviewTargetDate(new Date(date));
         setReviewTab(0);
-        setActivePanel(2);
+        setActivePanel(1);
     };
 
     const shiftReviewDate = (days: number) => {
@@ -786,8 +806,10 @@ export const DayAheadSimulationPage: React.FC = () => {
         },
         {
             label: '预期收益',
-            value: simulation.next_day_declare_status === '已申报'
-                ? `${simulationRows.reduce((sum, row) => sum + row.bidMwh * (row.priceForecast - 300), 0).toFixed(2)} 元`
+            value: simulation.trade_type === 'real'
+                ? ' - '
+                : simulation.next_day_declare_status === '已申报' && simulation.expected_pnl_yuan !== null
+                ? `${simulation.expected_pnl_yuan.toFixed(2)} 元`
                 : '--',
         },
         {
@@ -1546,11 +1568,12 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                                             时段 {reviewHoveredRow.period} {reviewHoveredRow.time_label}
                                         </Typography>
-                                        <Typography variant="body2">经济出清价格：{reviewHoveredRow.econ_price_yuan_per_mwh.toFixed(2)} 元/MWh</Typography>
-                                        <Typography variant="body2">实时现货价格：{reviewHoveredRow.realtime_price_yuan_per_mwh.toFixed(2)} 元/MWh</Typography>
-                                        <Typography variant="body2">实时减日前价差：{reviewHoveredRow.spread_yuan_per_mwh.toFixed(2)} 元/MWh</Typography>
+                                        <Typography variant="body2">经济出清价格：{formatReviewMetric(reviewHoveredRow.econ_price_yuan_per_mwh, 2, ' 元/MWh')}</Typography>
+                                        <Typography variant="body2">实时现货价格：{formatReviewMetric(reviewHoveredRow.realtime_price_yuan_per_mwh, 2, ' 元/MWh')}</Typography>
+                                        <Typography variant="body2">节点实时价格：{formatReviewMetric(reviewHoveredRow.nodeRealtimePrice, 2, ' 元/MWh')}</Typography>
+                                        <Typography variant="body2">实时减日前价差：{formatReviewMetric(reviewHoveredRow.spread_yuan_per_mwh, 2, ' 元/MWh')}</Typography>
                                         <Typography variant="body2">申报电量：{reviewHoveredRow.bid_mwh.toFixed(1)} MWh</Typography>
-                                        <Typography variant="body2">时段收益：{reviewHoveredRow.period_pnl_yuan.toFixed(2)} 元</Typography>
+                                        <Typography variant="body2">时段收益：{formatReviewMetric(reviewHoveredRow.period_pnl_yuan, 2, ' 元')}</Typography>
                                     </Paper>
                                 )}
                                 {!dailyReview && (
@@ -1575,8 +1598,9 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             <Area type="monotone" dataKey="positivePriceGap" stackId="positiveSpread" fill="#86efac" fillOpacity={0.55} stroke="none" isAnimationActive={false} />
                                             <Area type="monotone" dataKey="negativePriceBase" stackId="negativeSpread" fill="transparent" stroke="none" isAnimationActive={false} />
                                             <Area type="monotone" dataKey="negativePriceGap" stackId="negativeSpread" fill="#fdba74" fillOpacity={0.55} stroke="none" isAnimationActive={false} />
-                                            <Line type="monotone" dataKey="econ_price_yuan_per_mwh" stroke="#2563eb" strokeWidth={2.2} dot={false} name="经济出清价格" isAnimationActive={false} />
-                                            <Line type="monotone" dataKey="realtime_price_yuan_per_mwh" stroke="#475569" strokeWidth={2.2} dot={false} name="实时现货价格" isAnimationActive={false} />
+                                            <Line type="monotone" dataKey="econ_price_yuan_per_mwh" stroke="#ff9800" strokeWidth={2} strokeDasharray="3 3" dot={false} name="经济出清价格" isAnimationActive={false} />
+                                            <Line type="monotone" dataKey="realtime_price_yuan_per_mwh" stroke="#f44336" strokeWidth={2} dot={false} name="实时现货价格" isAnimationActive={false} hide={hasNodeRealtimeFallback} />
+                                            <Line type="monotone" dataKey="realtime_price_yuan_per_mwh" stroke="#ff1f1f" strokeWidth={3} strokeDasharray="10 5" dot={false} name="节点实时价格" isAnimationActive={false} connectNulls={false} hide={!hasNodeRealtimeFallback} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
@@ -1622,11 +1646,11 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             <TableRow key={row.period} hover>
                                                 <TableCell>{row.period}</TableCell>
                                                 <TableCell>{row.time_label}</TableCell>
-                                                <TableCell align="right">{row.econ_price_yuan_per_mwh.toFixed(2)}</TableCell>
-                                                <TableCell align="right">{row.realtime_price_yuan_per_mwh.toFixed(2)}</TableCell>
-                                                <TableCell align="right">{row.spread_yuan_per_mwh.toFixed(2)}</TableCell>
+                                                <TableCell align="right">{formatReviewMetric(row.econ_price_yuan_per_mwh)}</TableCell>
+                                                <TableCell align="right">{formatReviewMetric(row.realtime_price_yuan_per_mwh)}</TableCell>
+                                                <TableCell align="right">{formatReviewMetric(row.spread_yuan_per_mwh)}</TableCell>
                                                 <TableCell align="right">{row.bid_mwh.toFixed(1)}</TableCell>
-                                                <TableCell align="right">{row.period_pnl_yuan.toFixed(2)}</TableCell>
+                                                <TableCell align="right">{formatReviewMetric(row.period_pnl_yuan)}</TableCell>
                                                 <TableCell align="right">{row.result_flag}</TableCell>
                                             </TableRow>
                                         ))}
@@ -1755,8 +1779,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 }}
                             >
                                 <Tab icon={<TimelineOutlinedIcon />} iconPosition="start" label={isMobile ? '申报' : '模拟申报'} />
-                                <Tab icon={<AnalyticsOutlinedIcon />} iconPosition="start" label={isMobile ? '收益' : '策略收益'} />
                                 <Tab icon={<StyleOutlinedIcon />} iconPosition="start" label={isMobile ? '复盘' : '单日复盘'} />
+                                <Tab icon={<AnalyticsOutlinedIcon />} iconPosition="start" label={isMobile ? '收益' : '策略收益'} />
                                 {!isMobile && <Tab label="策略对比" />}
                             </Tabs>
                         </Paper>
@@ -1770,8 +1794,8 @@ export const DayAheadSimulationPage: React.FC = () => {
                             }}
                         >
                             {activePanel === 0 && renderSimulationPanel()}
-                            {activePanel === 1 && renderProfitPanel()}
-                            {activePanel === 2 && renderReviewPanel()}
+                            {activePanel === 1 && renderReviewPanel()}
+                            {activePanel === 2 && renderProfitPanel()}
                             {!isMobile && activePanel === 3 && (
                                 <Paper
                                     variant="outlined"

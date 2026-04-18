@@ -1,4 +1,5 @@
 ﻿import logging
+import math
 from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -46,6 +47,8 @@ AUTO_OFF_SHELF_TYPES = {"自动下架", "自动下架-成交"}
 
 
 class TradeReviewService:
+    DEFAULT_NODE_SPOT_PRICE_NAME = "凌云站/500kV.Ⅰ母"
+
     def __init__(self, db: Database) -> None:
         self.db = db
         self.trade_declare_collection = db["trade_declare"]
@@ -397,8 +400,10 @@ class TradeReviewService:
             "day_ahead_econ_price",
             price_field="clearing_price",
         ))
+        node_rt_curve = self._load_node_realtime_curve(target_date)
 
         rt_map = {period: value for period, value in enumerate(rt_curve[:48], start=1)}
+        node_rt_map = {period: value for period, value in enumerate(node_rt_curve[:48], start=1)}
         da_map = {period: value for period, value in enumerate(da_curve[:48], start=1)}
         da_econ_map = {period: value for period, value in enumerate(da_econ_curve[:48], start=1)}
         declared_map = self._load_day_ahead_declared_volume_map(target_date)
@@ -419,7 +424,8 @@ class TradeReviewService:
             declared_mwh = round(float(declared_map.get(period, 0.0) or 0.0), 6)
             actual_load_mwh = actual_load_map.get(period)
             forecast_gap_min_mwh = forecast_gap_min_map.get(period)
-            rt_price = rt_map.get(period)
+            node_rt_price = node_rt_map.get(period)
+            rt_price = rt_map.get(period) if rt_map.get(period) is not None else node_rt_price
             da_price = da_map.get(period)
             da_econ_price = da_econ_map.get(period)
 
@@ -439,6 +445,7 @@ class TradeReviewService:
                     actual_load_mwh=round(actual_load_mwh, 3) if actual_load_mwh is not None else None,
                     forecast_gap_min_mwh=round(forecast_gap_min_mwh, 3) if forecast_gap_min_mwh is not None else None,
                     price_rt=round(rt_price, 3) if rt_price is not None else None,
+                    node_price_rt=round(node_rt_price, 3) if node_rt_price is not None else None,
                     price_da=round(da_price, 3) if da_price is not None else None,
                     price_da_econ=round(da_econ_price, 3) if da_econ_price is not None else None,
                     price_da_forecast=None,
@@ -473,6 +480,53 @@ class TradeReviewService:
         if not any(abs(value) > 1e-9 for value in normalized):
             return [None] * 48
         return [round(value, 6) for value in normalized]
+
+    def _safe_finite_float(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return None
+        return numeric_value if math.isfinite(numeric_value) else None
+
+    def _build_node_15m_price_map(self, points: List[Dict[str, Any]]) -> Dict[str, float]:
+        if not points:
+            return {}
+
+        raw_price_map: Dict[str, float] = {}
+        for point in points:
+            time_str = point.get("time")
+            cq_price = self._safe_finite_float(point.get("cq_price"))
+            if time_str and cq_price is not None:
+                raw_price_map[str(time_str)] = cq_price
+
+        aggregated_map: Dict[str, float] = {}
+        for quarter_index in range(1, 97):
+            total_minutes = quarter_index * 15
+            quarter_time = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+            window_times = []
+            for offset in (10, 5, 0):
+                point_minutes = total_minutes - offset
+                point_time = "24:00" if point_minutes == 1440 else f"{point_minutes // 60:02d}:{point_minutes % 60:02d}"
+                window_times.append(point_time)
+            if all(time_key in raw_price_map for time_key in window_times):
+                aggregated_map[quarter_time] = round(sum(raw_price_map[time_key] for time_key in window_times) / 3, 2)
+        return aggregated_map
+
+    def _load_node_realtime_curve(self, target_date: str) -> List[Optional[float]]:
+        node_daily_doc = self.db["node_spot_price_daily"].find_one(
+            {"node_name": self.DEFAULT_NODE_SPOT_PRICE_NAME, "date": target_date},
+            {"_id": 0, "points": 1},
+        )
+        node_map = self._build_node_15m_price_map((node_daily_doc or {}).get("points", []))
+        values: List[Optional[float]] = []
+        for period in range(1, 49):
+            total_minutes = period * 30
+            time_label = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+            node_value = node_map.get(time_label)
+            values.append(round(node_value, 6) if node_value is not None else None)
+        return values
 
     def _load_day_ahead_declared_volume_map(self, target_date: str) -> Dict[int, float]:
         docs = list(

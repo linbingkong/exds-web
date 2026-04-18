@@ -51,6 +51,7 @@ export interface SimulationDetail {
     strategy_code: string;
     next_day_declare_status: DeclareStatus;
     summary: SimulationSummary;
+    expected_pnl_yuan: number | null;
     price_forecast_30m: number[];
     bid_mwh_30m: number[];
     is_editable: boolean;
@@ -118,7 +119,7 @@ export interface ProfitDailyResponse {
 }
 
 export interface DailyReviewSummary {
-    expected_pnl_yuan: number;
+    expected_pnl_yuan: number | null;
     realized_pnl_yuan: number;
     total_bid_mwh: number;
     win_periods: number;
@@ -130,13 +131,14 @@ export interface DailyReviewRow {
     period: number;
     time_label: string;
     price_forecast_yuan_per_mwh: number;
-    dayahead_price_yuan_per_mwh: number;
-    econ_price_yuan_per_mwh: number;
-    realtime_price_yuan_per_mwh: number;
+    dayahead_price_yuan_per_mwh: number | null;
+    econ_price_yuan_per_mwh: number | null;
+    realtime_price_yuan_per_mwh: number | null;
+    node_realtime_price_yuan_per_mwh?: number | null;
     bid_mwh: number;
-    spread_yuan_per_mwh: number;
-    period_pnl_yuan: number;
-    result_flag: '盈利' | '亏损' | '持平';
+    spread_yuan_per_mwh: number | null;
+    period_pnl_yuan: number | null;
+    result_flag: '盈利' | '亏损' | '持平' | '待发布';
 }
 
 export interface DailyReviewDetail {
@@ -362,6 +364,9 @@ function buildSimulationDetailFromState(item: TradeSourceDetail, targetDate: str
         strategy_code: item.strategy_code,
         next_day_declare_status: nextStatus,
         summary: summarizeBidCurve(bidCurve),
+        expected_pnl_yuan: nextStatus === '已申报'
+            ? round(bidCurve.reduce((sum, bidMwh, index) => sum + bidMwh * ((priceForecast[index] ?? 0) - 300), 0), 2)
+            : null,
         price_forecast_30m: priceForecast,
         bid_mwh_30m: bidCurve,
         is_editable: editable.editable,
@@ -509,17 +514,18 @@ function buildDailyReview(item: TradeSourceListItem, targetDate: string): DailyR
             dayahead_price_yuan_per_mwh: dayahead,
             econ_price_yuan_per_mwh: econ,
             realtime_price_yuan_per_mwh: realtime,
+            node_realtime_price_yuan_per_mwh: null,
             bid_mwh: bidCurve[index],
             spread_yuan_per_mwh: spread,
             period_pnl_yuan: pnl,
             result_flag: pnl > 0 ? '盈利' : pnl < 0 ? '亏损' : '持平',
         };
     });
-    const totalPnl = chartRows.reduce((sum, row) => sum + row.period_pnl_yuan, 0);
+    const totalPnl = chartRows.reduce((sum, row) => sum + (row.period_pnl_yuan ?? 0), 0);
     const totalBid = chartRows.reduce((sum, row) => sum + row.bid_mwh, 0);
-    const winPeriods = chartRows.filter((row) => row.period_pnl_yuan > 0).length;
-    const lossPeriods = chartRows.filter((row) => row.period_pnl_yuan < 0).length;
-    const avgSpread = round(chartRows.reduce((sum, row) => sum + row.spread_yuan_per_mwh, 0) / PERIOD_COUNT, 2);
+    const winPeriods = chartRows.filter((row) => (row.period_pnl_yuan ?? 0) > 0).length;
+    const lossPeriods = chartRows.filter((row) => (row.period_pnl_yuan ?? 0) < 0).length;
+    const avgSpread = round(chartRows.reduce((sum, row) => sum + (row.spread_yuan_per_mwh ?? 0), 0) / PERIOD_COUNT, 2);
     return {
         trade_source_id: item.trade_source_id,
         trade_source_name: item.trade_source_name,

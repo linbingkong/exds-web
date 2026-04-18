@@ -64,6 +64,7 @@ class DayAheadReviewChartRow(BaseModel):
     actual_load_mwh: Optional[float] = Field(None, description="实际电量")
     forecast_gap_min_mwh: Optional[float] = Field(None, description="预测电量（gap最小）")
     price_rt: Optional[float] = Field(None, description="实时价格")
+    node_price_rt: Optional[float] = Field(None, description="节点实时价格")
     price_da: Optional[float] = Field(None, description="日前物理出清价格")
     price_da_econ: Optional[float] = Field(None, description="日前经济出清价格")
     price_da_forecast: Optional[float] = Field(None, description="日前预测价格")
