@@ -1,0 +1,7 @@
+interface:
+  display_name: "满高内容页改造"
+  short_description: "按页面容器场景修正桌面端满高与图表高度"
+  default_prompt: "Use $exds-full-height-page to convert an exds-web page into a desktop full-height content page while keeping mobile layout natural and charts reliably rendered."
+
+policy:
+  allow_implicit_invocation: true
