@@ -243,7 +243,7 @@ export const DashboardPage: React.FC = () => {
                 const summary = await dashboardApi.getSummary();
 
                 if (cancelled) return;
-                setState({
+                setState((prev) => ({
                     settlementKpi: summary.settlement_kpi,
                     settlementChart: summary.settlement_chart_monthly,
                     yearlySettlementChart: summary.settlement_chart_yearly,
@@ -251,7 +251,7 @@ export const DashboardPage: React.FC = () => {
                     customerOverview: summary.customer_overview,
                     customerProfit: summary.customer_profit_contribution,
                     priceTrend: summary.price_trend,
-                    marketIntraday: null,
+                    marketIntraday: prev.marketIntraday,
                     alerts: summary.alerts,
                     snapshotMeta: {
                         snapshot_id: summary.snapshot_id,
@@ -259,7 +259,7 @@ export const DashboardPage: React.FC = () => {
                         month: summary.month,
                         generated_at: summary.generated_at,
                     },
-                });
+                }));
             } catch (err: any) {
                 if (!cancelled) {
                     setError(parseApiError(err));
