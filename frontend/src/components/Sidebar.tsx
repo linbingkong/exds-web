@@ -92,7 +92,6 @@ const menuItems: MenuItem[] = [
         icon: <QueryStatsOutlined />,
         subItems: [
             { text: '天气预测数据', path: '/basic-data/weather-data', icon: <AnalyticsOutlined /> },
-            { text: '价格基础数据', path: '/price-forecast/baseline-data', icon: <StorageOutlined /> },
             { text: '日前价格预测', path: '/price-forecast/day-ahead', icon: <TrendingUpOutlined /> },
             { text: 'D-2价格预测', path: '/price-forecast/d-2', icon: <CrisisAlertOutlined /> },
             { text: '短期负荷预测', path: '/load-forecast/short-term', icon: <QueryStatsOutlined /> },
@@ -133,6 +132,7 @@ const menuItems: MenuItem[] = [
         subItems: [
             { text: '国网代理购电', path: '/basic-data/grid-price', icon: <PriceChangeIcon /> },
             { text: '时段电价分布', path: '/basic-data/tou-definition', icon: <StyleOutlined /> },
+            { text: '价格基础数据', path: '/price-forecast/baseline-data', icon: <StorageOutlined /> },
             { text: '负荷数据诊断', path: '/basic-data/load-validation', icon: <VerifiedUserOutlined /> },
             { text: '基础数据导入', path: '/basic-data/monthly-manual-data', icon: <PriceChangeIcon /> },
         ],

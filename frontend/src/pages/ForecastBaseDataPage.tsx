@@ -780,7 +780,7 @@ export const ForecastBaseDataPage: React.FC = () => {
                             color: 'text.primary'
                         }}
                     >
-                        价格预测 / 预测基础数据
+                        基础数据 / 价格基础数据
                     </Typography>
                 )}
 
