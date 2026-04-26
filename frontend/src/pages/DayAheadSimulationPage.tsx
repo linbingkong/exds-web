@@ -1685,7 +1685,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                 }}
             >
                 <Box sx={{ ...(isMobile ? mobileLayoutSx : desktopLayoutSx), maxWidth: '100%' }}>
-                    {isMobile && <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>交易策略 / 日前模拟交易</Typography>}
+                    {isMobile && <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>交易策略 / 日前交易策略</Typography>}
                     {feedback && <Alert severity={feedback.severity} onClose={() => setFeedback(null)}>{feedback.message}</Alert>}
                     <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: { xs: 1.5, md: 1.5 }, flex: 1, minHeight: 0, minWidth: 0, overflow: { xs: 'visible', md: 'hidden' } }}>
                     <Paper

@@ -88,7 +88,7 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
-        text: '交易预测',
+        text: '市场预测',
         icon: <QueryStatsOutlined />,
         subItems: [
             { text: '天气预测数据', path: '/basic-data/weather-data', icon: <AnalyticsOutlined /> },
@@ -104,7 +104,7 @@ const menuItems: MenuItem[] = [
         subItems: [
             { text: '月度交易策略', path: '/trading-strategy/monthly', icon: <CalendarMonthOutlined /> },
             { text: '月内交易策略', path: '/trading-strategy/contract-curve', icon: <FunctionsOutlined /> },
-            { text: '日前模拟交易', path: '/trading-strategy/day-ahead', icon: <TrendingUpOutlined /> },
+            { text: '日前交易策略', path: '/trading-strategy/day-ahead', icon: <TrendingUpOutlined /> },
         ],
     },
     {

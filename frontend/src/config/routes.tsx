@@ -77,7 +77,7 @@ export const routeConfigs: RouteConfig[] = [
     { path: '/trading-strategy/contract-curve', title: '月内交易策略', component: PlaceholderPage },
     { path: '/trading-strategy/monthly', title: '月度交易策略', component: PlaceholderPage },
     { path: '/trading-strategy/d-2', title: 'D-2交易策略', component: PlaceholderPage },
-    { path: '/trading-strategy/day-ahead', title: '日前模拟交易', component: DayAheadSimulationPage },
+    { path: '/trading-strategy/day-ahead', title: '日前交易策略', component: DayAheadSimulationPage },
 
     // 交易复盘
     { path: '/trade-review/monthly-review', title: '月度交易复盘', component: MonthlyTradeReviewPage },
