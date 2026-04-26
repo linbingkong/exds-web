@@ -19,8 +19,17 @@
 - `minHeight: 0`
 - `display: 'flex'`
 - `flexDirection: 'column'`
-4. 若存在 `TabPanel`，保证 `TabPanel -> 页面根 -> 内容主区` 这一整条链路都能传递高度。
-5. 页面内部不要再自己补浏览器级 `px/py`，避免与外层内容区 padding 叠加。
+4. 若页面内部有页头、筛选栏或工具栏：
+- 页头区域使用 `flex: '0 0 auto'`
+- 页头下面的主体区域使用 `flex: '1 1 0'`、`minHeight: 0`
+- 主体区域不要再写 `height: '100%'`，避免页头高度叠加后撑出页面滚动条
+5. 若存在 `TabPanel`，保证 `TabPanel -> 页面根 -> 内容主区` 这一整条链路都能传递高度。
+6. 页面内部不要再自己补浏览器级 `px/py`，避免与外层内容区 padding 叠加。
+7. 对长列表、表格、权限矩阵等非图表面板：
+- 卡片层使用 `display: 'flex'`、`flexDirection: 'column'`、`height: { xs: 'auto', md: '100%' }`、`minHeight: 0`
+- 桌面端卡片层使用 `overflow: 'hidden'`，移动端保持自然溢出或页面滚动
+- 长内容容器使用 `flex: '1 1 0'`、`minHeight: 0`、`overflowY: 'auto'`
+- 不要让长内容一次性完整渲染到卡片外部，导致页面底部被撑破
 
 典型例子：
 
@@ -28,6 +37,7 @@
 - `frontend/src/components/contract-price-trend/PriceTrendTab.tsx`
 - `frontend/src/components/contract-price-trend/CurveCompareTab.tsx`
 - `frontend/src/components/contract-price-trend/QuantityStructureTab.tsx`
+- `frontend/src/pages/UserPermissionsPage.tsx`
 
 ## 2. 独立 Dashboard / 总览页
 

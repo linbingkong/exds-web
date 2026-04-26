@@ -481,15 +481,15 @@ const UserPermissionsPage: React.FC = () => {
 
   if (initialLoading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="300px">
+      <Box display="flex" justifyContent="center" alignItems="center" sx={{ flex: 1, minHeight: { xs: 300, md: 0 }, height: { xs: 'auto', md: '100%' } }}>
         <CircularProgress />
       </Box>
     );
   }
 
   return (
-    <Box>
-      <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, mb: 2 }}>
+    <Box sx={{ height: { xs: 'auto', md: '100%' }, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: { xs: 'visible', md: 'hidden' } }}>
+      <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, mb: 2, flex: '0 0 auto' }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }}>
           <Box>
             <Typography variant="h6">用户与权限管理</Typography>
@@ -511,14 +511,14 @@ const UserPermissionsPage: React.FC = () => {
         </Paper>
       ) : (
 
-      <Grid container spacing={{ xs: 1, sm: 2 }} alignItems="stretch">
-        <Grid size={{ xs: 12, md: 5 }} sx={{ display: 'flex' }}>
-          <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 560 }}>
+      <Grid container spacing={{ xs: 1, sm: 2 }} alignItems="stretch" sx={{ flex: '1 1 0', minHeight: 0, overflow: { xs: 'visible', md: 'hidden' } }}>
+        <Grid size={{ xs: 12, md: 5 }} sx={{ display: 'flex', height: { xs: 'auto', md: '100%' }, minHeight: 0 }}>
+          <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, flex: 1, display: 'flex', flexDirection: 'column', minHeight: { xs: 420, md: 0 }, height: { xs: 'auto', md: '100%' } }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ mb: 1 }}>
               <Typography variant="subtitle1">用户列表</Typography>
               <Button size="small" startIcon={<PersonAddIcon />} onClick={() => setCreateUserOpen(true)} disabled={!canManage || saving}>新建用户</Button>
             </Stack>
-            <TableContainer sx={{ overflowX: 'auto', flex: 1, width: '100%' }}>
+            <TableContainer sx={{ overflow: 'auto', flex: 1, minHeight: 0, width: '100%' }}>
               <Table
                 size="small"
                 sx={{
@@ -594,8 +594,8 @@ const UserPermissionsPage: React.FC = () => {
           </Paper>
         </Grid>
 
-        <Grid size={{ xs: 12, md: 3 }} sx={{ display: 'flex' }}>
-          <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 560 }}>
+        <Grid size={{ xs: 12, md: 3 }} sx={{ display: 'flex', height: { xs: 'auto', md: '100%' }, minHeight: 0 }}>
+          <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, flex: 1, display: 'flex', flexDirection: 'column', minHeight: { xs: 360, md: 0 }, height: { xs: 'auto', md: '100%' } }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
               <Typography variant="subtitle1">角色列表</Typography>
               <Stack direction="row" spacing={0.5}>
@@ -627,7 +627,7 @@ const UserPermissionsPage: React.FC = () => {
               </Stack>
             </Stack>
             <Divider sx={{ mb: 1 }} />
-            <List dense sx={{ overflowY: 'auto', flex: 1 }}>
+            <List dense sx={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
               {roles.map((role) => (
                 <ListItemButton key={role.code} selected={role.code === selectedRoleCode} onClick={() => setSelectedRoleCode(role.code)}>
                   <ListItemText
@@ -640,18 +640,18 @@ const UserPermissionsPage: React.FC = () => {
           </Paper>
         </Grid>
 
-        <Grid size={{ xs: 12, md: 4 }} sx={{ display: 'flex' }}>
-          <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, flex: 1, minHeight: 560 }}>
+        <Grid size={{ xs: 12, md: 4 }} sx={{ display: 'flex', height: { xs: 'auto', md: '100%' }, minHeight: 0 }}>
+          <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, flex: 1, display: 'flex', flexDirection: 'column', minHeight: { xs: 520, md: 0 }, height: { xs: 'auto', md: '100%' }, overflow: { xs: 'visible', md: 'hidden' } }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
               <Typography variant="subtitle1">权限详情</Typography>
               <Button size="small" variant="contained" startIcon={<SaveIcon />} onClick={onSaveRolePerms} disabled={!selectedRole || !canManage || saving}>保存</Button>
             </Stack>
             {!selectedRole ? <Alert severity="info">请选择角色</Alert> : (
-              <>
+              <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: { xs: 'visible', md: 'hidden' } }}>
                 <Typography variant="body2" fontWeight={600}>{selectedRole.name}</Typography>
                 <Typography variant="caption" color="text.secondary">{selectedRole.code}</Typography>
                 <Divider sx={{ my: 1 }} />
-                <Box sx={{ maxHeight: 360, overflowY: 'auto' }}>
+                <Box sx={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
                   <Table size="small">
                     <TableHead><TableRow><TableCell>模块</TableCell><TableCell align="center">view</TableCell><TableCell align="center">edit</TableCell></TableRow></TableHead>
                     <TableBody>
@@ -701,7 +701,7 @@ const UserPermissionsPage: React.FC = () => {
                     <Typography variant="caption" color="text.secondary">暂无其他例外权限</Typography>
                   )}
                 </Stack>
-              </>
+              </Box>
             )}
           </Paper>
         </Grid>
