@@ -106,7 +106,7 @@ npm test --prefix frontend
 
 ## 11. 参考文件
 
-- `AI_RULES.md`
+- `docs/spec/AI执行总纲.md`
 - `frontend/src/auth/permissionPrecheck.ts`
 - `webapp/scripts/init_auth_data.py`
 - `scripts/check_auth_all.py`

@@ -38,60 +38,25 @@ npm test --prefix frontend
 3. 优先使用项目内现有可复用 Hook，不重复造轮子。
 4. 所有请求必须通过：`frontend/src/api/client.ts`。
 
-## 4. 权限模型（强制）
+## 4. 规则索引（必须按需阅读）
 
-采用“模块两档 + 例外权限”模型：
+以下细则从主文件拆分到独立文档。AI 助手执行相关任务前必须先阅读对应文档，并按其中要求执行。
 
-- 模块权限：
-- `module:{module_code}:view`
-- `module:{module_code}:edit`
+1. 开始任何代码或文档修改前，必须阅读：`docs/spec/AI执行总纲.md`。
+2. 涉及后端接口、数据库、脚本、服务、权限依赖或 FastAPI 代码时，必须阅读：`docs/spec/后端开发规范.md`。
+3. 涉及前端页面、组件、Hook、样式、请求或 React/TypeScript 代码时，必须阅读：`docs/spec/前端开发规范.md`。
+4. 涉及新增业务页面、菜单、模块权限、写接口、权限校验或提交前权限检查时，必须阅读：`docs/spec/权限与鉴权规则.md`。
+5. 涉及提交、提交日志、commit hook 或提交前门禁时，必须阅读：`docs/spec/Git提交规范.md`。
+6. 引用文档通常不会被自动展开到全局提示词中；必须通过主文件中的“按需阅读”要求触发读取。对高风险规则，应在主文件保留索引与触发条件。
 
-- 例外权限：
-- `system:logs:resolve`
-- `system:data_access:manage`
-- `settlement:recalc:execute`
-- `data:critical:delete`
-- `system:auth:manage`
-
-## 5. 鉴权实施要求（R/B/Q/S）
-
-所有写操作（新增、编辑、删除、导入、同步、上传、重算、触发任务）必须同时满足：
-
-1. `R`（Route）：路由访问校验 `module:*:view`
-2. `B`（Button）：按钮前置校验 `module:*:edit`（必要时叠加例外权限）
-3. `Q`（Query）：前端请求前拦截（`permissionPrecheck.ts`）
-4. `S`（Server）：后端写接口兜底（`Depends(require_permission(...))`）
-
-说明：前端体验优化不能替代后端 `S` 层安全边界。
-
-## 6. 自动化检查（提交前必须通过）
-
-```bash
-.venv/Scripts/python scripts/check_auth_all.py
-```
-
-会执行：
-
-1. `scripts/check_auth_backend.py`
-2. `scripts/check_auth_frontend.py`
-3. `scripts/check_auth_route_consistency.py`
-
-任一失败，禁止提交。
-
-补充约束：
-
-1. 新增业务页面、菜单、模块权限或写接口时，除更新代码外，还必须同步更新 `webapp/scripts/init_auth_data.py`（适用时）。
-2. 只要修改了 `webapp/scripts/init_auth_data.py`，必须执行：`python -m webapp.scripts.init_auth_data`，否则角色配置页与权限清单可能仍显示旧数据。
-3. 此类任务优先使用项目技能：`exds-new-module`。
-
-## 7. 后端开发规范
+## 5. 后端开发规范
 
 1. 所有数据库操作通过 `webapp.tools.mongo.DATABASE`。
 2. 新增写接口必须挂权限依赖。
 3. 删除等高风险操作需叠加 `data:critical:delete`（适用时）。
 4. 使用类型提示、日志、RESTful 设计与统一错误处理。
 
-## 8. 前端开发规范（关键）
+## 6. 前端开发规范（关键）
 
 1. Material UI Grid 使用 v7 语法：`size={{ xs: 12, md: 6 }}`。
 2. 图表全屏统一使用 `useChartFullscreen`。
@@ -100,64 +65,29 @@ npm test --prefix frontend
 5. 移动端优先，保持响应式布局。
 6. 页面根容器的外层留白需与同类页面保持一致，默认不要额外叠加明显的左侧与顶部间距；如无特殊设计要求，优先复用现有页面的 gutter 和首屏间距。
 
-## 9. 语言与协作约束
+## 7. 语言与协作约束
 
 1. 全部沟通、注释、文档使用简体中文。
 2. 信息不足时先说明不确定性，不做拍脑袋改动。
 3. 默认最小改动，除非明确要求重构。
 
-## 10. 时间字段规范（强制）
+## 8. 时间字段规范（强制）
 
 1. 项目统一使用 `datetime.now()`（naive）生成时间，禁止新增 `datetime.utcnow()` 与 `datetime.now(timezone.utc)`。
 2. 涉及数据库落库时间字段（如 `created_at`、`updated_at`、`imported_at`、`login_at`、`logout_at`）必须按本规则执行。
 3. 历史数据若包含时区信息，读取时可做兼容转换，但新写入必须保持 naive 格式一致。
 
-## 11. 参考文件
+## 9. 参考文件
 
-- `AI_RULES.md`
+- `docs/spec/AI执行总纲.md`
+- `docs/spec/后端开发规范.md`
+- `docs/spec/前端开发规范.md`
+- `docs/spec/权限与鉴权规则.md`
+- `docs/spec/Git提交规范.md`
 - `frontend/src/auth/permissionPrecheck.ts`
 - `webapp/scripts/init_auth_data.py`
 - `scripts/check_auth_all.py`
-- `docs/todo/用户权限管理实施计划1.1.md`
-
-## 12. 提交日志规范（强制）
-
-1. 提交信息必须使用以下格式：
-- `type(scope): 中文描述`
-
-2. `type` 允许值：
-- `feat`
-- `fix`
-- `refactor`
-- `docs`
-- `chore`
-- `perf`
-- `test`
-- `build`
-- `ci`
-- `revert`
-
-3. `scope` 规则：
-- 使用英文小写 + kebab-case（示例：`auth`、`user-permissions`、`settlement`）
-- 禁止中文、空格、下划线、驼峰
-- 推荐 scope 白名单（优先使用）：
-- `auth`
-- `user-permissions`
-- `settlement`
-- `pricing`
-- `customer`
-- `load-analysis`
-- `trade-review`
-- `frontend`
-- `backend`
-- `docs`
-
-4. 描述规则：
-- 必须为中文语义，简洁明确
-- 示例：`feat(auth): 新增登录失败锁定与自动解锁机制`
-
-5. 提交门禁：
-- 可通过 `commit-msg` hook 对提交日志格式进行自动校验（按团队需要启用）。
+- `docs/pages/用户权限管理/用户权限管理实施计划1.1.md`
 
 # 🚨 中文编码保护规则（必须遵守）
 
