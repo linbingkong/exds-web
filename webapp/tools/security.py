@@ -309,7 +309,47 @@ def is_trusted_device(username: str, device_fingerprint: Optional[str]) -> bool:
         {"trust_expire_at": 1},
     )
     if not doc:
-        return False
+        legacy_doc = None
+        if fingerprint.startswith("v2|"):
+            device_id = fingerprint.split("|", 1)[1].strip()
+            if device_id:
+                legacy_doc = db.auth_trusted_devices.find_one(
+                    {
+                        "username": username,
+                        "device_fingerprint": {"$regex": f"^{re.escape(device_id)}\\|"},
+                        "is_active": True,
+                    },
+                    {"device_fingerprint": 1, "device_name": 1, "trust_expire_at": 1, "first_seen_at": 1},
+                    sort=[("last_seen_at", -1)],
+                )
+        if not legacy_doc:
+            return False
+
+        expire_dt = _parse_iso_datetime(legacy_doc.get("trust_expire_at"))
+        if expire_dt and datetime.now() > expire_dt:
+            db.auth_trusted_devices.update_one(
+                {"username": username, "device_fingerprint": legacy_doc.get("device_fingerprint")},
+                {"$set": {"is_active": False, "updated_at": datetime.now().isoformat()}},
+            )
+            return False
+
+        now = datetime.now().isoformat()
+        db.auth_trusted_devices.update_one(
+            {"username": username, "device_fingerprint": fingerprint},
+            {"$set": {
+                "username": username,
+                "device_fingerprint": fingerprint,
+                "device_name": legacy_doc.get("device_name"),
+                "last_seen_at": now,
+                "updated_at": now,
+                "trust_expire_at": legacy_doc.get("trust_expire_at"),
+                "is_active": True,
+            }, "$setOnInsert": {
+                "first_seen_at": legacy_doc.get("first_seen_at") or now,
+            }},
+            upsert=True,
+        )
+        return True
 
     expire_dt = _parse_iso_datetime(doc.get("trust_expire_at"))
     if expire_dt and datetime.now() > expire_dt:

@@ -12,13 +12,5 @@ function ensureDeviceId(): string {
 
 export function getDeviceFingerprint(): string {
     const deviceId = ensureDeviceId();
-    const parts = [
-        deviceId,
-        navigator.userAgent || '',
-        navigator.language || '',
-        navigator.platform || '',
-        `${window.screen?.width || 0}x${window.screen?.height || 0}`,
-        String(new Date().getTimezoneOffset()),
-    ];
-    return parts.join('|').slice(0, 255);
+    return `v2|${deviceId}`.slice(0, 255);
 }
