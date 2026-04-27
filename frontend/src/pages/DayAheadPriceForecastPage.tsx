@@ -14,18 +14,9 @@ import {
     CircularProgress,
     Alert,
     IconButton,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-    Grid,
     Chip,
-    Card,
-    CardContent,
-    LinearProgress,
     useTheme,
     useMediaQuery,
-    SelectChangeEvent,
     Button,
     Snackbar,
     Dialog,
@@ -33,6 +24,7 @@ import {
     DialogContent,
     DialogContentText,
     DialogActions,
+    Divider,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
@@ -42,28 +34,31 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { zhCN } from 'date-fns/locale';
 import ArrowLeftIcon from '@mui/icons-material/ArrowLeft';
 import ArrowRightIcon from '@mui/icons-material/ArrowRight';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import { format, addDays, startOfDay, startOfMonth, subDays } from 'date-fns';
+import { format, addDays, startOfDay, subDays } from 'date-fns';
 import {
     ComposedChart,
-    LineChart,
+    BarChart,
+    Bar,
+    Cell,
     Line,
     Area,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
-    Legend,
     ResponsiveContainer,
 } from 'recharts';
 import { useChartFullscreen } from '../hooks/useChartFullscreen';
 import { useAuth } from '../contexts/AuthContext';
 import { priceForecastApi, ForecastVersion, ChartDataPoint, AccuracyData, AccuracyHistoryPoint, CommandStatus } from '../api/priceForecast';
+import { useWeather } from '../hooks/useWeather';
+import { WeatherDisplay } from '../components/WeatherDisplay';
 
+const DAY_AHEAD_UNIFIED_FORECAST_TYPE = 'd1_price_unified';
+const DAY_AHEAD_POINT_COUNT = 96;
 
 // ============ 自定义 Tooltip ============
 interface CustomTooltipProps {
@@ -82,16 +77,11 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label })
     const point = payload.find((p) => p.payload)?.payload;
     const predicted = payload.find((p) => p.dataKey === 'predicted_price')?.value ?? null;
     const actual = payload.find((p) => p.dataKey === 'actual_price')?.value ?? null;
-    const preSchedule = payload.find((p) => p.dataKey === 'pre_schedule_price')?.value ?? null;
-    const conf80Lower = point?.confidence_80_lower ?? null;
-    const conf80Upper = point?.confidence_80_upper ?? null;
     const conf90Lower = point?.confidence_90_lower ?? null;
     const conf90Upper = point?.confidence_90_upper ?? null;
     const predictedValue = typeof predicted === 'number' ? predicted : null;
     const actualValue = typeof actual === 'number' ? actual : null;
-    const preScheduleValue = typeof preSchedule === 'number' ? preSchedule : null;
     const error = (predictedValue !== null && actualValue !== null) ? (predictedValue - actualValue) : null;
-    const preScheduleError = (preScheduleValue !== null && actualValue !== null) ? (preScheduleValue - actualValue) : null;
     const errorColor = error === null
         ? 'text.primary'
         : Math.abs(error) < 20
@@ -111,15 +101,9 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label })
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" color="error.main">日前出清:</Typography>
+                    <Typography variant="body2" color="error.main">物理出清:</Typography>
                     <Typography variant="body2" fontWeight="bold">
                         {actualValue !== null ? `${actualValue.toFixed(2)} 元/MWh` : '-'}
-                    </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" color="warning.main">预计划日前:</Typography>
-                    <Typography variant="body2" fontWeight="bold">
-                        {preScheduleValue !== null ? `${preScheduleValue.toFixed(2)} 元/MWh` : '-'}
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
@@ -132,39 +116,19 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label })
                         {error !== null ? `${error > 0 ? '+' : ''}${error.toFixed(2)} 元/MWh` : '-'}
                     </Typography>
                 </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography variant="body2" color="text.secondary">预计划误差:</Typography>
-                    <Typography
-                        variant="body2"
-                        fontWeight="bold"
-                        color={preScheduleError === null ? 'text.primary' : Math.abs(preScheduleError) < 20 ? 'success.main' : 'warning.main'}
-                    >
-                        {preScheduleError !== null ? `${preScheduleError > 0 ? '+' : ''}${preScheduleError.toFixed(2)} 元/MWh` : '-'}
-                    </Typography>
-                </Box>
             </Box>
 
-            {(conf80Lower !== null && conf80Upper !== null) || (conf90Lower !== null && conf90Upper !== null) ? (
+            {conf90Lower !== null && conf90Upper !== null ? (
                 <Box sx={{ mt: 0.75, pt: 0.75, borderTop: '1px dashed', borderColor: 'divider' }}>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
                         预测区间
                     </Typography>
-                    {conf80Lower !== null && conf80Upper !== null && (
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mb: conf90Lower !== null && conf90Upper !== null ? 0.5 : 0 }}>
-                            <Typography variant="caption" color="primary.main">80% 置信区间:</Typography>
-                            <Typography variant="caption" fontWeight="bold">
-                                {conf80Lower.toFixed(2)} ~ {conf80Upper.toFixed(2)} 元/MWh
-                            </Typography>
-                        </Box>
-                    )}
-                    {conf90Lower !== null && conf90Upper !== null && (
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                            <Typography variant="caption" color="success.main">90% 置信区间:</Typography>
-                            <Typography variant="caption" fontWeight="bold" color="success.main">
-                                {conf90Lower.toFixed(2)} ~ {conf90Upper.toFixed(2)} 元/MWh
-                            </Typography>
-                        </Box>
-                    )}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <Typography variant="caption" color="success.main">90% 置信区间:</Typography>
+                        <Typography variant="caption" fontWeight="bold" color="success.main">
+                            {conf90Lower.toFixed(2)} ~ {conf90Upper.toFixed(2)} 元/MWh
+                        </Typography>
+                    </Box>
                 </Box>
             ) : null}
         </Paper>
@@ -172,146 +136,12 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label })
 };
 
 
-// ============ 准确度颜色编码 ============
-const getAccuracyColor = (accuracy: number): 'success' | 'warning' | 'error' => {
-    if (accuracy >= 90) return 'success';
-    if (accuracy >= 85) return 'warning';
-    return 'error';
-};
-
-const calculateWmapeAccuracy = (
-    actualValues: Array<number | null | undefined>,
-    comparedValues: Array<number | null | undefined>,
-): number | null => {
-    const pairedValues = actualValues.reduce<Array<{ actual: number; compared: number }>>((acc, actual, index) => {
-        const compared = comparedValues[index];
-        if (typeof actual === 'number' && typeof compared === 'number') {
-            acc.push({ actual, compared });
-        }
-        return acc;
-    }, []);
-
-    if (pairedValues.length === 0) {
-        return null;
-    }
-
-    const denominator = pairedValues.reduce((sum, item) => sum + Math.abs(item.actual), 0);
-    if (denominator === 0) {
-        return null;
-    }
-
-    const numerator = pairedValues.reduce((sum, item) => sum + Math.abs(item.actual - item.compared), 0);
-    return 100 - (numerator / denominator) * 100;
-};
-
-
-// ============ 核心指标卡片组件 ============
-interface KpiCardProps {
-    title: string;
-    value: string | number;
-    subtitle?: string;
-    color?: 'default' | 'success' | 'warning' | 'error';
-    chips?: Array<{ label: string; passed: boolean }>;
-    icon?: React.ReactNode;
-}
-
-const KpiCard: React.FC<KpiCardProps> = ({ title, value, subtitle, color, chips, icon }) => {
-    const colorMap: Record<string, string> = {
-        success: 'success.main',
-        warning: 'warning.main',
-        error: 'error.main',
-        default: 'text.primary',
-    };
-
-    return (
-        <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                    <Typography variant="body2" color="text.secondary">{title}</Typography>
-                    {icon}
-                </Box>
-                <Typography
-                    variant="h5"
-                    fontWeight="bold"
-                    color={colorMap[color || 'default']}
-                    sx={{ mb: 0.5 }}
-                >
-                    {value}
-                </Typography>
-                {subtitle && (
-                    <Typography variant="caption" color="text.secondary">{subtitle}</Typography>
-                )}
-                {chips && chips.length > 0 && (
-                    <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                        {chips.map((chip, idx) => (
-                            <Chip
-                                key={idx}
-                                label={chip.label}
-                                size="small"
-                                color={chip.passed ? 'success' : 'default'}
-                                variant={chip.passed ? 'filled' : 'outlined'}
-                                icon={chip.passed ? <CheckCircleIcon /> : undefined}
-                            />
-                        ))}
-                    </Box>
-                )}
-            </CardContent>
-        </Card>
-    );
-};
-
-
-// ============ 分时段准确度组件 ============
-interface PeriodAccuracyProps {
-    data: Record<string, number>;
-}
-
-const PeriodAccuracyCard: React.FC<PeriodAccuracyProps> = ({ data }) => {
-    if (!data || Object.keys(data).length === 0) {
-        return (
-            <Card variant="outlined" sx={{ height: '100%' }}>
-                <CardContent>
-                    <Typography variant="subtitle2" gutterBottom>分时段准确度</Typography>
-                    <Typography variant="body2" color="text.secondary">暂无数据</Typography>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    const periodOrder = ['尖峰', '高峰', '平段', '低谷', '深谷'];
-    const sortedPeriods = Object.entries(data).sort((a, b) => {
-        const idxA = periodOrder.indexOf(a[0]);
-        const idxB = periodOrder.indexOf(b[0]);
-        return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
-    });
-
-    return (
-        <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-                <Typography variant="subtitle2" gutterBottom>分时段准确度</Typography>
-                {sortedPeriods.map(([period, accuracy]) => (
-                    <Box key={period} sx={{ mb: 1.5 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                            <Typography variant="body2">{period}</Typography>
-                            <Typography
-                                variant="body2"
-                                fontWeight="bold"
-                                color={`${getAccuracyColor(accuracy ?? 0)}.main`}
-                            >
-                                {(accuracy ?? 0).toFixed(1)}%
-                            </Typography>
-                        </Box>
-                        <LinearProgress
-                            variant="determinate"
-                            value={Math.min(accuracy ?? 0, 100)}
-                            color={getAccuracyColor(accuracy ?? 0)}
-                            sx={{ height: 6, borderRadius: 3 }}
-                        />
-                    </Box>
-                ))}
-            </CardContent>
-        </Card>
-    );
+const getAccuracyBarColor = (accuracy: number | null | undefined): string => {
+    if (accuracy === null || accuracy === undefined) return '#cbd5e1';
+    if (accuracy >= 95) return '#2fb983';
+    if (accuracy >= 90) return '#64bfa2';
+    if (accuracy >= 80) return '#d39a45';
+    return '#bd5e61';
 };
 
 type ForecastExecutionKind = 'pending' | 'running' | 'success' | 'waiting' | 'failed';
@@ -497,25 +327,10 @@ const ForecastExecutionPanel: React.FC<ForecastExecutionPanelProps> = ({ executi
 };
 
 
-// ============ 当日数据特征组件 ============
-interface DailyStatsProps {
-    stats: AccuracyData['stats'];
-    chartData: ChartDataPoint[];
-}
-
 interface AccuracyHistoryTooltipProps {
     active?: boolean;
     payload?: Array<{ value?: number | null; payload?: AccuracyHistoryPoint }>;
     label?: string;
-}
-
-interface HistoryLegendProps {
-    showHistoryWmape: boolean;
-    showHistoryMae: boolean;
-    showHistoryRmse: boolean;
-    onToggleWmape: () => void;
-    onToggleMae: () => void;
-    onToggleRmse: () => void;
 }
 
 const AccuracyHistoryTooltip: React.FC<AccuracyHistoryTooltipProps> = ({ active, payload }) => {
@@ -528,7 +343,7 @@ const AccuracyHistoryTooltip: React.FC<AccuracyHistoryTooltipProps> = ({ active,
         <Paper sx={{ p: 1.5, minWidth: 180 }}>
             <Typography variant="subtitle2" gutterBottom>{dateLabel}</Typography>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                <Typography variant="body2" color="primary.main">WMAPE准确率:</Typography>
+                <Typography variant="body2" color="primary.main">准确率:</Typography>
                 <Typography variant="body2" fontWeight="bold">
                     {point.wmape_accuracy !== null && point.wmape_accuracy !== undefined
                         ? `${point.wmape_accuracy.toFixed(2)}%`
@@ -552,181 +367,6 @@ const AccuracyHistoryTooltip: React.FC<AccuracyHistoryTooltipProps> = ({ active,
                 </Typography>
             </Box>
         </Paper>
-    );
-};
-
-const AccuracyHistoryLegend: React.FC<HistoryLegendProps> = ({
-    showHistoryWmape,
-    showHistoryMae,
-    showHistoryRmse,
-    onToggleWmape,
-    onToggleMae,
-    onToggleRmse,
-}) => {
-    const items = [
-        {
-            label: 'WMAPE准确率',
-            active: showHistoryWmape,
-            color: '#1976d2',
-            dashed: false,
-            onClick: onToggleWmape,
-        },
-        {
-            label: 'MAE平均偏差',
-            active: showHistoryMae,
-            color: '#ed6c02',
-            dashed: false,
-            onClick: onToggleMae,
-        },
-        {
-            label: 'RMSE波动偏差',
-            active: showHistoryRmse,
-            color: '#7b1fa2',
-            dashed: true,
-            onClick: onToggleRmse,
-        },
-    ];
-
-    return (
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
-            {items.map((item) => (
-                <Box
-                    key={item.label}
-                    onClick={item.onClick}
-                    sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 0.75,
-                        cursor: 'pointer',
-                        userSelect: 'none',
-                        opacity: item.active ? 1 : 0.45,
-                        transition: 'opacity 0.2s ease',
-                    }}
-                >
-                    <Box
-                        sx={{
-                            width: 18,
-                            height: 0,
-                            borderTop: `3px ${item.dashed ? 'dashed' : 'solid'} ${item.color}`,
-                            borderRadius: 999,
-                        }}
-                    />
-                    <Typography variant="body2" color="text.secondary">
-                        {item.label}
-                    </Typography>
-                </Box>
-            ))}
-        </Box>
-    );
-};
-
-const DailyStatsCard: React.FC<DailyStatsProps> = ({ stats, chartData }) => {
-    // 从 chartData 计算预测价格统计
-    const predictedPrices = chartData
-        .map(d => d.predicted_price)
-        .filter((p): p is number => p !== null && p !== undefined);
-
-    const predictedStats = predictedPrices.length > 0 ? {
-        max: Math.max(...predictedPrices),
-        min: Math.min(...predictedPrices),
-        mean: predictedPrices.reduce((a, b) => a + b, 0) / predictedPrices.length,
-        hasNegative: predictedPrices.some(p => p < 0),
-    } : null;
-
-    // 从 chartData 计算实际价格统计
-    const actualPrices = chartData
-        .map(d => d.actual_price)
-        .filter((p): p is number => p !== null && p !== undefined);
-
-    const actualStats = actualPrices.length > 0 ? {
-        max: Math.max(...actualPrices),
-        min: Math.min(...actualPrices),
-        mean: actualPrices.reduce((a, b) => a + b, 0) / actualPrices.length,
-        hasNegative: actualPrices.some(p => p < 0),
-    } : null;
-
-    if (!predictedStats && !actualStats) {
-        return (
-            <Card variant="outlined" sx={{ height: '100%' }}>
-                <CardContent>
-                    <Typography variant="subtitle2" gutterBottom>当日数据特征</Typography>
-                    <Typography variant="body2" color="text.secondary">暂无数据</Typography>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    return (
-        <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-                <Typography variant="subtitle2" gutterBottom>当日数据特征</Typography>
-
-                {/* 表头 */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, pb: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}></Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ width: 70, textAlign: 'right' }}>预测</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ width: 70, textAlign: 'right' }}>实际</Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {/* 最高价 */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>最高价</Typography>
-                        <Typography variant="body2" fontWeight="bold" color="error.main" sx={{ width: 70, textAlign: 'right' }}>
-                            {predictedStats ? predictedStats.max.toFixed(1) : '-'}
-                        </Typography>
-                        <Typography variant="body2" fontWeight="bold" color="error.main" sx={{ width: 70, textAlign: 'right' }}>
-                            {actualStats ? actualStats.max.toFixed(1) : '-'}
-                        </Typography>
-                    </Box>
-
-                    {/* 最低价 */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>最低价</Typography>
-                        <Typography variant="body2" fontWeight="bold" color="success.main" sx={{ width: 70, textAlign: 'right' }}>
-                            {predictedStats ? predictedStats.min.toFixed(1) : '-'}
-                        </Typography>
-                        <Typography variant="body2" fontWeight="bold" color="success.main" sx={{ width: 70, textAlign: 'right' }}>
-                            {actualStats ? actualStats.min.toFixed(1) : '-'}
-                        </Typography>
-                    </Box>
-
-                    {/* 均价 */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>均价</Typography>
-                        <Typography variant="body2" fontWeight="bold" sx={{ width: 70, textAlign: 'right' }}>
-                            {predictedStats ? predictedStats.mean.toFixed(1) : '-'}
-                        </Typography>
-                        <Typography variant="body2" fontWeight="bold" sx={{ width: 70, textAlign: 'right' }}>
-                            {actualStats ? actualStats.mean.toFixed(1) : '-'}
-                        </Typography>
-                    </Box>
-
-                    {/* 负电价 */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>负电价</Typography>
-                        <Box sx={{ width: 70, textAlign: 'right' }}>
-                            {predictedStats ? (
-                                predictedStats.hasNegative ? (
-                                    <Chip label="有" size="small" color="warning" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                ) : (
-                                    <Chip label="无" size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                )
-                            ) : '-'}
-                        </Box>
-                        <Box sx={{ width: 70, textAlign: 'right' }}>
-                            {actualStats ? (
-                                actualStats.hasNegative ? (
-                                    <Chip label="有" size="small" color="warning" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                ) : (
-                                    <Chip label="无" size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
-                                )
-                            ) : '-'}
-                        </Box>
-                    </Box>
-                </Box>
-            </CardContent>
-        </Card>
     );
 };
 
@@ -755,9 +395,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     const [availableMaxDate, setAvailableMaxDate] = useState<Date | null>(addDays(startOfDay(new Date()), 1));
     const [historyStartDate, setHistoryStartDate] = useState<Date | null>(subDays(startOfDay(new Date()), 28));
     const [historyEndDate, setHistoryEndDate] = useState<Date | null>(addDays(startOfDay(new Date()), 1));
-    const [showHistoryWmape, setShowHistoryWmape] = useState(true);
-    const [showHistoryMae, setShowHistoryMae] = useState(false);
-    const [showHistoryRmse, setShowHistoryRmse] = useState(false);
+    const { weatherData, loading: weatherLoading } = useWeather(selectedDate);
 
     // 预测触发相关状态
     const [triggerLoading, setTriggerLoading] = useState(false);
@@ -769,31 +407,74 @@ export const DayAheadPriceForecastPage: React.FC = () => {
     // 日期限制：以后端实际可用数据日期为准
     const maxDate = availableMaxDate || addDays(startOfDay(new Date()), 1);
 
-    // 计算预测均价
-    const avgPredictedPrice = useMemo(() => {
-        if (chartData.length === 0) return null;
-        const validPoints = chartData.filter(d => d.predicted_price !== null);
-        if (validPoints.length === 0) return null;
-        const sum = validPoints.reduce((acc, curr) => acc + (curr.predicted_price || 0), 0);
-        return sum / validPoints.length;
+    const dailyMetrics = useMemo(() => {
+        const predictedPrices = chartData
+            .map((item) => item.predicted_price)
+            .filter((value): value is number => typeof value === 'number');
+        const actualPrices = chartData
+            .map((item) => item.actual_price)
+            .filter((value): value is number => typeof value === 'number');
+        const pairedValues = chartData.reduce<Array<{ predicted: number; actual: number }>>((acc, item) => {
+            if (typeof item.predicted_price === 'number' && typeof item.actual_price === 'number') {
+                acc.push({ predicted: item.predicted_price, actual: item.actual_price });
+            }
+            return acc;
+        }, []);
+        const actualPublished = chartData.some((item) => typeof item.actual_price === 'number');
+        const absoluteErrors = pairedValues.map((item) => Math.abs(item.predicted - item.actual));
+        const relativeErrors = pairedValues
+            .map((item) => {
+                if (item.actual === 0) {
+                    return Math.abs(item.predicted - item.actual) === 0 ? 0 : null;
+                }
+                return Math.abs(item.predicted - item.actual) / Math.abs(item.actual);
+            })
+            .filter((value): value is number => value !== null);
+
+        return {
+            predictedAvg: predictedPrices.length > 0 ? predictedPrices.reduce((sum, value) => sum + value, 0) / predictedPrices.length : null,
+            predictedMax: predictedPrices.length > 0 ? Math.max(...predictedPrices) : null,
+            predictedMin: predictedPrices.length > 0 ? Math.min(...predictedPrices) : null,
+            actualAvg: actualPrices.length > 0 ? actualPrices.reduce((sum, value) => sum + value, 0) / actualPrices.length : null,
+            actualPublished,
+            maxError: absoluteErrors.length > 0 ? Math.max(...absoluteErrors) : null,
+            within5Count: relativeErrors.filter((value) => value <= 0.05).length,
+            within10Count: relativeErrors.filter((value) => value <= 0.1).length,
+        };
     }, [chartData]);
 
-    const selectedWmape = accuracy?.wmape_accuracy ?? null;
-    const preScheduleWmape = useMemo(() => {
-        if (chartData.length === 0) return null;
-        return calculateWmapeAccuracy(
-            chartData.map((item) => item.actual_price),
-            chartData.map((item) => item.pre_schedule_price),
+    const dailyMetricRows = useMemo(() => {
+        const formatPrice = (value: number | null) => value !== null ? `${value.toFixed(2)} 元/MWh` : '-';
+        const formatActualPrice = (value: number | null) => dailyMetrics.actualPublished && value !== null ? `${value.toFixed(2)} 元/MWh` : '-';
+        const formatAccuracy = (value: number | null | undefined) => (
+            dailyMetrics.actualPublished && value !== null && value !== undefined ? `${value.toFixed(2)}%` : '-'
         );
-    }, [chartData]);
-    const historyErrorAxisMax = useMemo(() => {
-        const values = accuracyHistory.flatMap((item) => [
-            typeof item.mae === 'number' ? item.mae : null,
-            typeof item.rmse === 'number' ? item.rmse : null,
-        ]).filter((value): value is number => value !== null);
-        if (values.length === 0) return 10;
-        return Math.ceil(Math.max(...values) * 1.1);
-    }, [accuracyHistory]);
+        const formatError = (value: number | null | undefined) => (
+            dailyMetrics.actualPublished && value !== null && value !== undefined ? `${value.toFixed(2)} 元/MWh` : '-'
+        );
+        const formatCount = (value: number) => dailyMetrics.actualPublished ? `${value}/${DAY_AHEAD_POINT_COUNT}` : '-';
+        const accuracyColor = accuracy?.wmape_accuracy !== null && accuracy?.wmape_accuracy !== undefined
+            ? getAccuracyBarColor(accuracy.wmape_accuracy)
+            : '#64748b';
+        const neutralMetricStyle = {
+            color: '#334155',
+            bg: 'rgba(15, 23, 42, 0.03)',
+            emphasize: false,
+        };
+
+        return [
+            { label: '预测均价', value: formatPrice(dailyMetrics.predictedAvg), color: '#2563eb', bg: 'rgba(37, 99, 235, 0.06)', emphasize: true },
+            { label: '实际均价', value: formatActualPrice(dailyMetrics.actualAvg), ...neutralMetricStyle },
+            { label: '预测最高价', value: formatPrice(dailyMetrics.predictedMax), ...neutralMetricStyle },
+            { label: '预测最低价', value: formatPrice(dailyMetrics.predictedMin), ...neutralMetricStyle },
+            { label: '当日准确率', value: formatAccuracy(accuracy?.wmape_accuracy), color: accuracyColor, bg: 'rgba(47, 185, 131, 0.08)', emphasize: true },
+            { label: '最大误差', value: formatError(dailyMetrics.maxError), color: '#e11d48', bg: 'rgba(225, 29, 72, 0.06)', emphasize: true },
+            { label: 'MAE', value: formatError(accuracy?.mae), ...neutralMetricStyle },
+            { label: 'RMSE', value: formatError(accuracy?.rmse), ...neutralMetricStyle },
+            { label: '5%以内点数', value: formatCount(dailyMetrics.within5Count), ...neutralMetricStyle },
+            { label: '10%以内点数', value: formatCount(dailyMetrics.within10Count), ...neutralMetricStyle },
+        ];
+    }, [accuracy, dailyMetrics]);
 
     // 图表全屏
     const chartRef = useRef<HTMLDivElement>(null);
@@ -821,7 +502,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
         try {
             const response = await priceForecastApi.fetchVersions({
                 target_date: format(date, 'yyyy-MM-dd'),
-                forecast_type: 'd1_price',
+                forecast_type: DAY_AHEAD_UNIFIED_FORECAST_TYPE,
             });
             const data = response.data;
             setVersions(data);
@@ -891,7 +572,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
             const response = await priceForecastApi.fetchAccuracyHistory({
                 start_date: format(startDate, 'yyyy-MM-dd'),
                 end_date: format(endDate, 'yyyy-MM-dd'),
-                forecast_type: 'd1_price',
+                forecast_type: DAY_AHEAD_UNIFIED_FORECAST_TYPE,
             });
             setAccuracyHistory(response.data);
         } catch (err) {
@@ -917,28 +598,6 @@ export const DayAheadPriceForecastPage: React.FC = () => {
         } catch (err) {
             console.error('获取最大可用日期失败:', err);
             setAvailableMaxDate(addDays(startOfDay(new Date()), 1));
-        }
-    };
-
-    const handleHistoryQuickSelect = (type: 'last7' | 'last30' | 'last60' | 'thisMonth') => {
-        const baseDate = selectedDate || addDays(startOfDay(new Date()), 1);
-        switch (type) {
-            case 'last7':
-                setHistoryStartDate(subDays(baseDate, 6));
-                setHistoryEndDate(baseDate);
-                break;
-            case 'last30':
-                setHistoryStartDate(subDays(baseDate, 29));
-                setHistoryEndDate(baseDate);
-                break;
-            case 'last60':
-                setHistoryStartDate(subDays(baseDate, 59));
-                setHistoryEndDate(baseDate);
-                break;
-            case 'thisMonth':
-                setHistoryStartDate(startOfMonth(baseDate));
-                setHistoryEndDate(baseDate);
-                break;
         }
     };
 
@@ -973,6 +632,13 @@ export const DayAheadPriceForecastPage: React.FC = () => {
         // 限制最大日期为明天
         if (newDate > maxDate) return;
         setSelectedDate(newDate);
+    };
+
+    const handleAccuracyBarClick = (point?: AccuracyHistoryPoint | null) => {
+        if (!point?.target_date) return;
+        const nextDate = startOfDay(new Date(point.target_date));
+        if (Number.isNaN(nextDate.getTime()) || nextDate > maxDate) return;
+        setSelectedDate(nextDate);
     };
 
     // 检查是否可以向右导航（+1天）
@@ -1030,6 +696,7 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                 console.error('轮询命令状态失败:', err);
             }
         }, 5000); // 每 5 秒轮询一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stopPolling, selectedDate]);
 
     // 组件卸载时清理轮询
@@ -1110,30 +777,25 @@ export const DayAheadPriceForecastPage: React.FC = () => {
         handleTriggerForecast();
     };
 
-    // 版本选择
-    const handleVersionChange = (event: SelectChangeEvent<string>) => {
-        setSelectedVersion(event.target.value);
-    };
-
-    // 格式化版本显示
-    const formatVersionLabel = (version: ForecastVersion): string => {
-        const time = new Date(version.created_at).toLocaleTimeString('zh-CN', {
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-        return `${time} - ${version.model_type}`;
-    };
-
-    const loading = loadingVersions || loadingChart;
+    const loading = loadingVersions || loadingChart || loadingAccuracy;
 
     return (
         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
-            <Box sx={{ width: '100%' }}>
+            <Box
+                sx={{
+                    width: '100%',
+                    height: { xs: 'auto', md: '100%' },
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minHeight: 0,
+                    gap: 2,
+                }}
+            >
                 {/* 移动端面包屑标题 */}
                 {isTablet && (
                     <Typography
                         variant="subtitle1"
-                        sx={{ mb: 2, fontWeight: 'bold', color: 'text.primary' }}
+                        sx={{ fontWeight: 'bold', color: 'text.primary' }}
                     >
                         价格预测 / 日前价格预测
                     </Typography>
@@ -1145,81 +807,77 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                     sx={{
                         p: 2,
                         display: 'flex',
-                        gap: 1,
+                        gap: { xs: 1, sm: 2 },
                         alignItems: 'center',
                         flexWrap: 'wrap',
+                        justifyContent: { xs: 'center', sm: 'flex-start' },
+                        flex: '0 0 auto',
                     }}
                 >
-                    <IconButton onClick={() => handleShiftDate(-1)} disabled={loading}>
-                        <ArrowLeftIcon />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                        <IconButton onClick={() => handleShiftDate(-1)} disabled={loading} size="small">
+                            <ArrowLeftIcon />
+                        </IconButton>
+                        <DatePicker
+                            label="选择日期"
+                            value={selectedDate}
+                            onChange={(date) => setSelectedDate(date ? startOfDay(date) : null)}
+                            disabled={loading}
+                            maxDate={maxDate}
+                            slotProps={{
+                                textField: {
+                                    size: 'small',
+                                    sx: { width: { xs: '150px', sm: '200px' } },
+                                },
+                            }}
+                        />
+                        <IconButton onClick={() => handleShiftDate(1)} disabled={loading || !canNavigateNext} size="small">
+                            <ArrowRightIcon />
+                        </IconButton>
+                    </Box>
 
-                    <DatePicker
-                        label="选择日期"
-                        value={selectedDate}
-                        onChange={(date) => setSelectedDate(date ? startOfDay(date) : null)}
-                        disabled={loading}
-                        maxDate={maxDate}
-                        slotProps={{
-                            textField: {
-                                sx: { width: { xs: '150px', sm: '200px' } },
-                            },
+                    <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+                    <WeatherDisplay weatherData={weatherData} loading={weatherLoading} />
+
+                    <Box
+                        sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            flexWrap: 'wrap',
+                            ml: { xs: 0, lg: 'auto' },
+                            justifyContent: { xs: 'center', sm: 'flex-start' },
                         }}
-                    />
-
-                    <IconButton onClick={() => handleShiftDate(1)} disabled={loading || !canNavigateNext}>
-                        <ArrowRightIcon />
-                    </IconButton>
-
-                    <FormControl
-                        size="small"
-                        sx={{ minWidth: { xs: 180, sm: 280 }, ml: { xs: 0, sm: 2 } }}
-                        disabled={loading || versions.length === 0}
                     >
-                        <InputLabel>预测版本</InputLabel>
-                        <Select
-                            value={selectedVersion}
-                            onChange={handleVersionChange}
-                            label="预测版本"
+                        <Button
+                            variant="contained"
+                            color={commandStatus ? 'warning' : 'primary'}
+                            startIcon={
+                                triggerLoading ? <CircularProgress size={16} color="inherit" /> :
+                                    commandStatus === 'pending' ? <HourglassEmptyIcon /> :
+                                        commandStatus === 'running' ? <SyncIcon sx={{
+                                            animation: 'spin 2s linear infinite',
+                                            '@keyframes spin': {
+                                                '0%': { transform: 'rotate(0deg)' },
+                                                '100%': { transform: 'rotate(360deg)' }
+                                            }
+                                        }} /> :
+                                            versions.length > 0 ? <SyncIcon /> : <PlayArrowIcon />
+                            }
+                            onClick={handlePredictClick}
+                            disabled={
+                                !canEdit ||
+                                loading ||
+                                triggerLoading ||
+                                commandStatus === 'pending' ||
+                                commandStatus === 'running'
+                            }
                         >
-                            {versions.map((v) => (
-                                <MenuItem key={v.forecast_id} value={v.forecast_id}>
-                                    {formatVersionLabel(v)}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-
-                    {/* 预测按钮 */}
-                    <Button
-                        variant="contained"
-                        color={commandStatus ? 'warning' : 'primary'}
-                        startIcon={
-                            triggerLoading ? <CircularProgress size={16} color="inherit" /> :
-                                commandStatus === 'pending' ? <HourglassEmptyIcon /> :
-                                    commandStatus === 'running' ? <SyncIcon sx={{
-                                        animation: 'spin 2s linear infinite',
-                                        '@keyframes spin': {
-                                            '0%': { transform: 'rotate(0deg)' },
-                                            '100%': { transform: 'rotate(360deg)' }
-                                        }
-                                    }} /> :
-                                        versions.length > 0 ? <SyncIcon /> : <PlayArrowIcon />
-                        }
-                        onClick={handlePredictClick}
-                        disabled={
-                            !canEdit ||
-                            loading ||
-                            triggerLoading ||
-                            commandStatus === 'pending' ||
-                            commandStatus === 'running'
-                        }
-                        sx={{ ml: { xs: 0, sm: 'auto' } }}
-                    >
-                        {commandStatus === 'pending' ? '等待中...' :
-                            commandStatus === 'running' ? '执行中...' :
-                                versions.length > 0 ? '重新预测' : '预测'}
-                    </Button>
+                            {commandStatus === 'pending' ? '等待中...' :
+                                commandStatus === 'running' ? '执行中...' :
+                                    versions.length > 0 ? '重新预测' : '预测'}
+                        </Button>
+                    </Box>
                 </Paper>
 
                 {/* 重新预测确认对话框 */}
@@ -1264,471 +922,265 @@ export const DayAheadPriceForecastPage: React.FC = () => {
                     </Alert>
                 )}
 
-                {/* 首次加载 */}
-                {loading && chartData.length === 0 ? (
+                <Paper
+                    variant="outlined"
+                    sx={{
+                        p: { xs: 1, sm: 2 },
+                        position: 'relative',
+                        flex: { xs: '0 0 auto', md: '1 1 0' },
+                        minHeight: { xs: 360, md: 0 },
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: { xs: 'visible', md: 'hidden' },
+                    }}
+                >
+                    {loading && (
+                        <Box
+                            sx={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                                zIndex: 1000,
+                            }}
+                        >
+                            <CircularProgress />
+                        </Box>
+                    )}
+
                     <Box
-                        display="flex"
-                        justifyContent="center"
-                        alignItems="center"
-                        minHeight="400px"
+                        sx={{
+                            display: 'flex',
+                            alignItems: { xs: 'flex-start', md: 'center' },
+                            justifyContent: 'space-between',
+                            gap: 1.5,
+                            mb: 0.75,
+                            flexDirection: { xs: 'column', md: 'row' },
+                            flex: '0 0 auto',
+                        }}
                     >
-                        <CircularProgress />
+                        <Typography variant="h6">96点日前预测曲线</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 1.5 }, flexWrap: 'wrap' }}>
+                            {[
+                                { label: '预测', color: '#009f72', dashed: false, area: false },
+                                { label: '物理出清', color: '#c7861b', dashed: true, area: false },
+                                { label: '90%置信区间', color: '#9fd8cb', dashed: false, area: true },
+                            ].map((item) => (
+                                <Box key={item.label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6 }}>
+                                    {item.area ? (
+                                        <Box sx={{ width: 18, height: 10, borderRadius: 0.5, bgcolor: item.color, opacity: 0.5 }} />
+                                    ) : (
+                                        <Box sx={{ width: 20, height: 0, borderTop: `2px ${item.dashed ? 'dashed' : 'solid'} ${item.color}` }} />
+                                    )}
+                                    <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                                </Box>
+                            ))}
+                        </Box>
                     </Box>
-                ) : (
-                    <>
-                        {/* 区域 B：趋势对比图 */}
-                        <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, mt: 2, position: 'relative' }}>
-                            {/* 数据刷新覆盖层 */}
-                            {loading && (
+
+                    {executionState && <ForecastExecutionPanel executionState={executionState} />}
+
+                    <Box
+                        ref={chartRef}
+                        sx={{
+                            height: { xs: 300, md: '100%' },
+                            flex: { xs: '0 0 auto', md: '1 1 0' },
+                            minHeight: 0,
+                            position: 'relative',
+                            backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
+                            p: isFullscreen ? 2 : 0,
+                            ...(isFullscreen && {
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                width: '100vw',
+                                height: '100vh',
+                                zIndex: 1400,
+                            }),
+                            '& .recharts-surface:focus': {
+                                outline: 'none',
+                            },
+                            '& *:focus': {
+                                outline: 'none !important',
+                            },
+                        }}
+                    >
+                        <FullscreenEnterButton />
+                        <FullscreenExitButton />
+                        <FullscreenTitle />
+                        <NavigationButtons />
+
+                        {chartData.length === 0 ? (
+                            <Box sx={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                                <Typography color="text.secondary">
+                                    {versions.length === 0 ? executionState?.title || '该日期暂无可展示曲线数据' : '加载中...'}
+                                </Typography>
+                            </Box>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                    <XAxis dataKey="time" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                                    <YAxis tick={{ fontSize: 11 }} label={{ value: '元/MWh', angle: -90, position: 'insideLeft' }} />
+                                    <Tooltip content={<CustomTooltip />} />
+                                    {chartData.some(d => d.confidence_90_lower != null && d.confidence_90_upper != null) && (
+                                        <Area
+                                            type="monotone"
+                                            dataKey={(d: any) => [d.confidence_90_lower, d.confidence_90_upper]}
+                                            stroke="none"
+                                            fill="#9fd8cb"
+                                            fillOpacity={0.24}
+                                            name="90%置信区间"
+                                            connectNulls
+                                        />
+                                    )}
+                                    <Line type="monotone" dataKey="predicted_price" stroke="#009f72" strokeWidth={2.4} dot={false} name="预测" connectNulls />
+                                    <Line type="monotone" dataKey="actual_price" stroke="#c7861b" strokeWidth={2} dot={false} strokeDasharray="6 4" name="物理出清" connectNulls />
+                                </ComposedChart>
+                            </ResponsiveContainer>
+                        )}
+                    </Box>
+                </Paper>
+
+                <Box
+                    sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.15fr) minmax(360px, 0.85fr)' },
+                        gap: 2,
+                        flex: { xs: '0 0 auto', md: '0 0 340px' },
+                        minHeight: { xs: 'auto', md: 0 },
+                    }}
+                >
+                    <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, height: { xs: 'auto', md: '100%' }, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
+                            <Typography variant="h6">近30天准确率</Typography>
+                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                {[
+                                    { label: '≥95%', color: getAccuracyBarColor(95) },
+                                    { label: '90%-95%', color: getAccuracyBarColor(90) },
+                                    { label: '80%-90%', color: getAccuracyBarColor(80) },
+                                    { label: '<80%', color: getAccuracyBarColor(79) },
+                                ].map((item) => (
+                                    <Box key={item.label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                                        <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: item.color }} />
+                                        <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                                    </Box>
+                                ))}
+                            </Box>
+                        </Box>
+                        <Box
+                            sx={{
+                                height: { xs: 240, md: '100%' },
+                                flex: { xs: '0 0 auto', md: '1 1 0' },
+                                minHeight: 0,
+                                '& .recharts-surface:focus': { outline: 'none' },
+                                '& *:focus': { outline: 'none !important' },
+                            }}
+                        >
+                            {loadingAccuracyHistory ? (
+                                <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                                    <CircularProgress size={24} />
+                                </Box>
+                            ) : accuracyHistory.length === 0 ? (
+                                <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                                    <Typography color="text.secondary">近30天暂无准确率数据</Typography>
+                                </Box>
+                            ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={accuracyHistory} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                        <XAxis dataKey="target_date" tick={{ fontSize: 11 }} tickFormatter={(value) => format(new Date(value), 'MM-dd')} />
+                                        <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                                        <Tooltip content={<AccuracyHistoryTooltip />} />
+                                        <Bar
+                                            dataKey="wmape_accuracy"
+                                            name="准确率"
+                                            radius={[3, 3, 0, 0]}
+                                            cursor="pointer"
+                                            onClick={(data) => handleAccuracyBarClick(data?.payload as AccuracyHistoryPoint | undefined)}
+                                        >
+                                            {accuracyHistory.map((entry) => (
+                                                <Cell
+                                                    key={entry.target_date}
+                                                    fill={getAccuracyBarColor(entry.wmape_accuracy)}
+                                                    stroke={selectedDate && format(selectedDate, 'yyyy-MM-dd') === format(new Date(entry.target_date), 'yyyy-MM-dd') ? '#0f172a' : 'transparent'}
+                                                    strokeWidth={selectedDate && format(selectedDate, 'yyyy-MM-dd') === format(new Date(entry.target_date), 'yyyy-MM-dd') ? 2 : 0}
+                                                />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </Box>
+                    </Paper>
+
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: { xs: 1.5, sm: 2 },
+                            height: { xs: 'auto', md: '100%' },
+                            minHeight: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <Typography variant="h6" sx={{ mb: 1 }}>当日预测指标</Typography>
+                        <Box
+                            sx={{
+                                display: 'grid',
+                                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                                gridTemplateRows: { sm: 'repeat(5, minmax(0, 1fr))' },
+                                gap: 0.75,
+                                flex: '1 1 0',
+                                minHeight: 0,
+                                alignContent: 'stretch',
+                            }}
+                        >
+                            {dailyMetricRows.map((row) => (
                                 <Box
+                                    key={row.label}
                                     sx={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
+                                        minWidth: 0,
+                                        minHeight: 0,
+                                        p: 0.75,
+                                        border: '1px solid',
+                                        borderColor: 'divider',
+                                        borderLeft: '4px solid',
+                                        borderLeftColor: '#cbd5e1',
+                                        borderRadius: 1,
+                                        bgcolor: row.bg,
                                         display: 'flex',
-                                        alignItems: 'center',
+                                        flexDirection: 'column',
                                         justifyContent: 'center',
-                                        backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                                        zIndex: 1000,
                                     }}
                                 >
-                                    <CircularProgress />
-                                </Box>
-                            )}
-
-                            <Box
-                                sx={{
-                                    display: 'flex',
-                                    alignItems: { xs: 'flex-start', md: 'center' },
-                                    justifyContent: 'space-between',
-                                    gap: 1.5,
-                                    mb: 2,
-                                    flexDirection: { xs: 'column', md: 'row' },
-                                }}
-                            >
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                                    <Typography variant="h6">
-                                        预测与出清价格对比
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.15 }}>
+                                        {row.label}
                                     </Typography>
-                                    {avgPredictedPrice !== null && (
-                                        <Box sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 1,
-                                            px: 1.5,
-                                            py: 0.5,
-                                            border: '1px solid',
-                                            borderColor: 'primary.light',
-                                            borderRadius: 1,
-                                            bgcolor: 'rgba(25, 118, 210, 0.04)',
-                                        }}>
-                                            <Typography variant="caption" color="text.secondary">预测均价:</Typography>
-                                            <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                {avgPredictedPrice.toFixed(2)} 元
-                                            </Typography>
-                                        </Box>
-                                    )}
-                                    <Box sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1,
-                                        px: 1.5,
-                                        py: 0.5,
-                                        border: '1px solid',
-                                        borderColor: selectedWmape !== null ? `${getAccuracyColor(selectedWmape)}.light` : 'divider',
-                                        borderRadius: 1,
-                                        bgcolor: selectedWmape !== null
-                                            ? getAccuracyColor(selectedWmape) === 'success'
-                                                ? 'rgba(46, 125, 50, 0.06)'
-                                                : getAccuracyColor(selectedWmape) === 'warning'
-                                                    ? 'rgba(237, 108, 2, 0.08)'
-                                                    : 'rgba(211, 47, 47, 0.06)'
-                                            : 'rgba(0, 0, 0, 0.02)',
-                                    }}>
-                                        <Typography variant="caption" color="text.secondary">WMAPE准确率:</Typography>
-                                        <Typography
-                                            variant="body2"
-                                            fontWeight="bold"
-                                            color={selectedWmape !== null ? `${getAccuracyColor(selectedWmape)}.main` : 'text.primary'}
-                                        >
-                                            {selectedWmape !== null ? `${selectedWmape.toFixed(2)}%` : '待评估'}
-                                        </Typography>
-                                    </Box>
-                                    <Box sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1,
-                                        px: 1.5,
-                                        py: 0.5,
-                                        border: '1px solid',
-                                        borderColor: preScheduleWmape !== null ? `${getAccuracyColor(preScheduleWmape)}.light` : 'divider',
-                                        borderRadius: 1,
-                                        bgcolor: preScheduleWmape !== null
-                                            ? getAccuracyColor(preScheduleWmape) === 'success'
-                                                ? 'rgba(46, 125, 50, 0.06)'
-                                                : getAccuracyColor(preScheduleWmape) === 'warning'
-                                                    ? 'rgba(237, 108, 2, 0.08)'
-                                                    : 'rgba(211, 47, 47, 0.06)'
-                                            : 'rgba(0, 0, 0, 0.02)',
-                                    }}>
-                                        <Typography variant="caption" color="text.secondary">预计划vs日前 WMAPE:</Typography>
-                                        <Typography
-                                            variant="body2"
-                                            fontWeight="bold"
-                                            color={preScheduleWmape !== null ? `${getAccuracyColor(preScheduleWmape)}.main` : 'text.primary'}
-                                        >
-                                            {preScheduleWmape !== null ? `${preScheduleWmape.toFixed(2)}%` : '待评估'}
-                                        </Typography>
-                                    </Box>
-                                    {showHistoryMae && (
-                                        <Box sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 1,
-                                            px: 1.5,
-                                            py: 0.5,
-                                            border: '1px solid',
-                                            borderColor: 'primary.light',
-                                            borderRadius: 1,
-                                            bgcolor: 'rgba(25, 118, 210, 0.04)',
-                                        }}>
-                                            <Typography variant="caption" color="text.secondary">MAE平均偏差:</Typography>
-                                            <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                {accuracy?.mae !== null && accuracy?.mae !== undefined ? `${accuracy.mae.toFixed(2)} 元/MWh` : '待评估'}
-                                            </Typography>
-                                        </Box>
-                                    )}
-                                    {showHistoryRmse && (
-                                        <Box sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 1,
-                                            px: 1.5,
-                                            py: 0.5,
-                                            border: '1px solid',
-                                            borderColor: 'primary.light',
-                                            borderRadius: 1,
-                                            bgcolor: 'rgba(25, 118, 210, 0.04)',
-                                        }}>
-                                            <Typography variant="caption" color="text.secondary">RMSE波动偏差:</Typography>
-                                            <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                {accuracy?.rmse !== null && accuracy?.rmse !== undefined ? `${accuracy.rmse.toFixed(2)} 元/MWh` : '待评估'}
-                                            </Typography>
-                                        </Box>
-                                    )}
-                                </Box>
-                            </Box>
-
-                            {executionState && <ForecastExecutionPanel executionState={executionState} />}
-
-                            <Box
-                                ref={chartRef}
-                                sx={{
-                                    height: { xs: 350, sm: 450 },
-                                    position: 'relative',
-                                    backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
-                                    p: isFullscreen ? 2 : 0,
-                                    ...(isFullscreen && {
-                                        position: 'fixed',
-                                        top: 0,
-                                        left: 0,
-                                        width: '100vw',
-                                        height: '100vh',
-                                        zIndex: 1400,
-                                    }),
-                                    '& .recharts-surface:focus': {
-                                        outline: 'none',
-                                    },
-                                    '& *:focus': {
-                                        outline: 'none !important',
-                                    },
-                                }}
-                            >
-                                <FullscreenEnterButton />
-                                <FullscreenExitButton />
-                                <FullscreenTitle />
-                                <NavigationButtons />
-
-                                {chartData.length === 0 ? (
-                                    <Box
+                                    <Typography
+                                        variant="body2"
                                         sx={{
-                                            display: 'flex',
-                                            height: '100%',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
+                                            mt: 0.2,
+                                            fontWeight: 700,
+                                            color: row.color,
+                                            overflowWrap: 'anywhere',
+                                            lineHeight: 1.15,
+                                            fontSize: { xs: '0.875rem', md: '0.8rem', xl: '0.875rem' },
                                         }}
                                     >
-                                        <Typography color="text.secondary">
-                                            {chartData.length === 0 && versions.length === 0
-                                                ? executionState?.title || '该日期暂无可展示曲线数据'
-                                                : '加载中...'}
-                                        </Typography>
-                                    </Box>
-                                ) : (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart
-                                            data={chartData}
-                                            margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
-                                        >
-                                            <CartesianGrid strokeDasharray="3 3" />
-                                            <XAxis
-                                                dataKey="time"
-                                                tick={{ fontSize: 11 }}
-                                                interval="preserveStartEnd"
-                                            />
-                                            <YAxis
-                                                tick={{ fontSize: 11 }}
-                                                label={{
-                                                    value: '元/MWh',
-                                                    angle: -90,
-                                                    position: 'insideLeft',
-                                                }}
-                                            />
-                                            <Tooltip content={<CustomTooltip />} />
-                                            <Legend />
-
-                                            {/* 置信区间 */}
-                                            {/* 置信区间 90% (浅绿色范围) */}
-                                            {chartData.some(d => d.confidence_90_lower != null) && (
-                                                <Area
-                                                    type="monotone"
-                                                    dataKey={(d: any) => [d.confidence_90_lower, d.confidence_90_upper]}
-                                                    stroke="none"
-                                                    fill="#4caf50"
-                                                    fillOpacity={0.15}
-                                                    name="90%置信区间"
-                                                    connectNulls
-                                                />
-                                            )}
-
-                                            {/* 置信区间 80% (淡蓝色范围) */}
-                                            {chartData.some(d => d.confidence_80_lower != null) && (
-                                                <Area
-                                                    type="monotone"
-                                                    dataKey={(d: any) => [d.confidence_80_lower, d.confidence_80_upper]}
-                                                    stroke="none"
-                                                    fill="#1976d2"
-                                                    fillOpacity={0.15}
-                                                    name="80%置信区间"
-                                                    connectNulls
-                                                />
-                                            )}
-
-                                            {/* 预测曲线 */}
-                                            <Line
-                                                type="monotone"
-                                                dataKey="predicted_price"
-                                                stroke="#1976d2"
-                                                strokeWidth={2}
-                                                dot={false}
-                                                name="预测价格"
-                                                connectNulls
-                                            />
-
-                                            {/* 实际曲线 */}
-                                            <Line
-                                                type="monotone"
-                                                dataKey="actual_price"
-                                                stroke="#d32f2f"
-                                                strokeWidth={2}
-                                                dot={false}
-                                                name="日前出清价格"
-                                                connectNulls
-                                            />
-
-                                            <Line
-                                                type="monotone"
-                                                dataKey="pre_schedule_price"
-                                                stroke="#ed6c02"
-                                                strokeWidth={2}
-                                                dot={false}
-                                                strokeDasharray="6 3"
-                                                name="预计划日前出清价格"
-                                                connectNulls
-                                            />
-                                        </ComposedChart>
-                                    </ResponsiveContainer>
-                                )}
-                            </Box>
-                        </Paper>
-
-                        {/* 区域 C：历史准确率曲线 */}
-                        <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 }, mt: 2 }}>
-                                <Box
-                                    sx={{
-                                        display: 'flex',
-                                        alignItems: { xs: 'stretch', md: 'center' },
-                                        justifyContent: 'space-between',
-                                        flexDirection: { xs: 'column', md: 'row' },
-                                        gap: 1.5,
-                                        mb: 2,
-                                    }}
-                                >
-                                    <Typography variant="h6">历史准确率曲线</Typography>
+                                        {row.value}
+                                    </Typography>
                                 </Box>
-
-                                <Box
-                                    sx={{
-                                        mb: 2,
-                                        display: 'flex',
-                                        flexDirection: { xs: 'column', lg: 'row' },
-                                        gap: 1.5,
-                                        alignItems: { xs: 'stretch', lg: 'center' },
-                                        justifyContent: 'flex-end',
-                                    }}
-                                >
-                                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
-                                        <DatePicker
-                                            label="开始日期"
-                                            value={historyStartDate}
-                                            onChange={(date) => setHistoryStartDate(date)}
-                                            maxDate={historyEndDate || selectedDate || maxDate}
-                                            slotProps={{
-                                                textField: {
-                                                    size: 'small',
-                                                    sx: {
-                                                        width: { xs: '140px', sm: '170px' },
-                                                        '& .MuiInputBase-input': { fontSize: { xs: '0.85rem', sm: '1rem' } },
-                                                    },
-                                                },
-                                            }}
-                                        />
-                                        <Typography sx={{ px: 0.5, fontSize: '0.875rem' }}>至</Typography>
-                                        <DatePicker
-                                            label="结束日期"
-                                            value={historyEndDate}
-                                            onChange={(date) => setHistoryEndDate(date)}
-                                            minDate={historyStartDate || undefined}
-                                            maxDate={selectedDate || maxDate}
-                                            slotProps={{
-                                                textField: {
-                                                    size: 'small',
-                                                    sx: {
-                                                        width: { xs: '140px', sm: '170px' },
-                                                        '& .MuiInputBase-input': { fontSize: { xs: '0.85rem', sm: '1rem' } },
-                                                    },
-                                                },
-                                            }}
-                                        />
-                                    </Box>
-                                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
-                                        <Button variant="outlined" size="small" onClick={() => handleHistoryQuickSelect('last7')}>
-                                            近7天
-                                        </Button>
-                                        <Button variant="outlined" size="small" onClick={() => handleHistoryQuickSelect('last30')}>
-                                            近30天
-                                        </Button>
-                                        <Button variant="outlined" size="small" onClick={() => handleHistoryQuickSelect('last60')}>
-                                            近60天
-                                        </Button>
-                                        <Button variant="outlined" size="small" onClick={() => handleHistoryQuickSelect('thisMonth')}>
-                                            本月
-                                        </Button>
-                                    </Box>
-                                </Box>
-
-                                <Box
-                                    sx={{
-                                        height: { xs: 260, md: 320 },
-                                        '& .recharts-surface:focus': {
-                                            outline: 'none',
-                                        },
-                                        '& *:focus': {
-                                            outline: 'none !important',
-                                        },
-                                    }}
-                                >
-                                    <AccuracyHistoryLegend
-                                        showHistoryWmape={showHistoryWmape}
-                                        showHistoryMae={showHistoryMae}
-                                        showHistoryRmse={showHistoryRmse}
-                                        onToggleWmape={() => setShowHistoryWmape((prev) => !prev)}
-                                        onToggleMae={() => setShowHistoryMae((prev) => !prev)}
-                                        onToggleRmse={() => setShowHistoryRmse((prev) => !prev)}
-                                    />
-
-                                    {loadingAccuracy || loadingAccuracyHistory ? (
-                                        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-                                            <CircularProgress size={24} />
-                                        </Box>
-                                    ) : accuracyHistory.length === 0 ? (
-                                        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-                                            <Typography color="text.secondary">所选日期区间暂无历史准确率数据</Typography>
-                                        </Box>
-                                    ) : (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart data={accuracyHistory} margin={{ top: 12, right: 20, left: 0, bottom: 8 }}>
-                                                <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis
-                                                    dataKey="target_date"
-                                                    tick={{ fontSize: 11 }}
-                                                    tickFormatter={(value) => format(new Date(value), 'MM-dd')}
-                                                />
-                                                <YAxis
-                                                    yAxisId="accuracy"
-                                                    domain={[0, 100]}
-                                                    tick={{ fontSize: 11 }}
-                                                    unit="%"
-                                                    label={{ value: 'WMAPE准确率', angle: -90, position: 'insideLeft' }}
-                                                />
-                                                <YAxis
-                                                    yAxisId="error"
-                                                    orientation="right"
-                                                    domain={[0, historyErrorAxisMax]}
-                                                    tick={{ fontSize: 11 }}
-                                                    unit=" 元/MWh"
-                                                    label={{ value: '偏差', angle: 90, position: 'insideRight' }}
-                                                />
-                                                <Tooltip content={<AccuracyHistoryTooltip />} />
-                                                {showHistoryWmape && (
-                                                    <Line
-                                                        type="monotone"
-                                                        yAxisId="accuracy"
-                                                        dataKey="wmape_accuracy"
-                                                        name="WMAPE准确率"
-                                                        stroke="#1976d2"
-                                                        strokeWidth={2.5}
-                                                        dot={{ r: 3 }}
-                                                        activeDot={{ r: 5 }}
-                                                        connectNulls
-                                                    />
-                                                )}
-                                                {showHistoryMae && (
-                                                    <Line
-                                                        type="monotone"
-                                                        yAxisId="error"
-                                                        dataKey="mae"
-                                                        name="MAE平均偏差"
-                                                        stroke="#ed6c02"
-                                                        strokeWidth={2.5}
-                                                        dot={{ r: 3 }}
-                                                        activeDot={{ r: 4 }}
-                                                        connectNulls
-                                                    />
-                                                )}
-                                                {showHistoryRmse && (
-                                                    <Line
-                                                        type="monotone"
-                                                        yAxisId="error"
-                                                        dataKey="rmse"
-                                                        name="RMSE波动偏差"
-                                                        stroke="#7b1fa2"
-                                                        strokeWidth={2.5}
-                                                        dot={{ r: 3 }}
-                                                        activeDot={{ r: 4 }}
-                                                        strokeDasharray="6 4"
-                                                        connectNulls
-                                                    />
-                                                )}
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    )}
-                                </Box>
-                            </Paper>
-                    </>
-                )}
+                            ))}
+                        </Box>
+                    </Paper>
+                </Box>
             </Box>
         </LocalizationProvider>
     );
