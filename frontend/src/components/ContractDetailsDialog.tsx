@@ -271,6 +271,12 @@ export const ContractDetailsDialog: React.FC<ContractDetailsDialogProps> = ({
                         />
                     </Box>
                 </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <Typography variant="body2" color="text.secondary">绿电比例</Typography>
+                    <Typography variant="body1" sx={{ mt: 0.5, fontWeight: 'medium' }}>
+                        {`${data?.green_power_ratio ?? 0}%`}
+                    </Typography>
+                </Grid>
             </Grid>
         </Paper>
     );
@@ -455,7 +461,7 @@ export const ContractDetailsDialog: React.FC<ContractDetailsDialogProps> = ({
                 <Button
                     variant="contained"
                     onClick={handleEdit}
-                    disabled={!data || data?.status !== 'pending' || !canEdit}
+                    disabled={!data || !canEdit}
                     startIcon={<EditIcon />}
                 >
                     编辑

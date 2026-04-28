@@ -117,6 +117,7 @@
 | `customer_name` | `String` | 关联的客户名称 |
 | `customer_id` | `String` | 关联的客户ID |
 | `purchasing_electricity_quantity` | `Number` | 购买电量 (kWh) |
+| `green_power_ratio` | `Number` | 绿电占比，范围 0-100%，默认 0 |
 | `purchase_start_month` | `DateTime` | 购电开始月份 |
 | `purchase_end_month` | `DateTime` | 购电结束月份 |
 | `package_snapshot` | `Object` | 套餐内容快照，用于存档 |

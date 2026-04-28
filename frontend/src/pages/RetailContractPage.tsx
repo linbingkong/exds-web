@@ -452,6 +452,12 @@ const RetailContractPage: React.FC = () => {
                 size="small"
               />
             </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">绿电比例:</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                {contract.green_power_ratio ?? 0}%
+              </Typography>
+            </Box>
 
 
           </Box>

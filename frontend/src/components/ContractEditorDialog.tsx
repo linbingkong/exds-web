@@ -67,6 +67,7 @@ export const ContractEditorDialog: React.FC<ContractEditorDialogProps> = ({
       customer_name: '',
       customer_id: '',
       purchasing_electricity_quantity: 0,
+      green_power_ratio: 0,
       purchase_start_month: null,
       purchase_end_month: null
     }
@@ -123,6 +124,7 @@ export const ContractEditorDialog: React.FC<ContractEditorDialogProps> = ({
           customer_name: contract.customer_name,
           customer_id: contract.customer_id,
           purchasing_electricity_quantity: contract.purchasing_electricity_quantity,
+          green_power_ratio: contract.green_power_ratio ?? 0,
           purchase_start_month: startDate,
           purchase_end_month: endDate
         });
@@ -139,6 +141,7 @@ export const ContractEditorDialog: React.FC<ContractEditorDialogProps> = ({
           customer_name: '',
           customer_id: '',
           purchasing_electricity_quantity: 0,
+          green_power_ratio: 0,
           purchase_start_month: null,
           purchase_end_month: null
         });
@@ -176,6 +179,7 @@ export const ContractEditorDialog: React.FC<ContractEditorDialogProps> = ({
       customer_name: data.customer_name,
       customer_id: data.customer_id,
       purchasing_electricity_quantity: data.purchasing_electricity_quantity,
+      green_power_ratio: data.green_power_ratio,
       purchase_start_month: data.purchase_start_month ? format(data.purchase_start_month, 'yyyy-MM-dd') : '',
       purchase_end_month: data.purchase_end_month ? format(data.purchase_end_month, 'yyyy-MM-dd') : ''
     };
@@ -414,6 +418,31 @@ export const ContractEditorDialog: React.FC<ContractEditorDialogProps> = ({
                   }}
                 />
               </LocalizationProvider>
+            )}
+          />
+        </Grid>
+
+        {/* 绿电比例 */}
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Controller
+            name="green_power_ratio"
+            control={control}
+            rules={{
+              min: { value: 0, message: '绿电比例不能小于0%' },
+              max: { value: 100, message: '绿电比例不能大于100%' }
+            }}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                fullWidth
+                label="绿电比例 (%)"
+                type="number"
+                disabled={isReadOnly}
+                inputProps={{ min: 0, max: 100, step: 0.01 }}
+                error={!!errors.green_power_ratio}
+                helperText={errors.green_power_ratio?.message}
+                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+              />
             )}
           />
         </Grid>

@@ -16,6 +16,7 @@ export interface Contract {
   customer_name: string;
   customer_id: string;
   purchasing_electricity_quantity: number;
+  green_power_ratio: number;
   purchase_start_month: string;
   purchase_end_month: string;
   status: 'pending' | 'active' | 'expired';
@@ -41,6 +42,7 @@ export interface ContractFormData {
   customer_name: string;
   customer_id: string;
   purchasing_electricity_quantity: number;
+  green_power_ratio: number;
   purchase_start_month: Date | null;
   purchase_end_month: Date | null;
 }
@@ -53,6 +55,7 @@ export interface ContractCreate {
   customer_name: string;
   customer_id: string;
   purchasing_electricity_quantity: number;
+  green_power_ratio?: number;
   purchase_start_month: string;
   purchase_end_month: string;
 }
@@ -65,6 +68,7 @@ export interface ContractUpdate {
   customer_name?: string;
   customer_id?: string;
   purchasing_electricity_quantity?: number;
+  green_power_ratio?: number;
   purchase_start_month?: string;
   purchase_end_month?: string;
 }

@@ -327,7 +327,7 @@ async def update_contract(
     current_user: User = Depends(get_current_active_user),
     _ctx = Depends(require_permission("module:customer_retail_contracts:edit"))
 ):
-    """更新合同（仅待生效状态）"""
+    """更新合同"""
     service = ContractService(DATABASE)
     try:
         result = service.update(

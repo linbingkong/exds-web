@@ -46,6 +46,7 @@ class ContractCreate(BaseModel):
     customer_name: str = Field(..., min_length=1, description="客户名称")
     customer_id: str = Field(..., min_length=1, description="客户ID")
     purchasing_electricity_quantity: float = Field(..., gt=0, description="购买电量(kWh)")
+    green_power_ratio: float = Field(0, ge=0, le=100, description="绿电占比(%)")
     purchase_start_month: datetime = Field(..., description="购电开始月份")
     purchase_end_month: datetime = Field(..., description="购电结束月份")
 
@@ -89,6 +90,7 @@ class ContractListItem(BaseModel):
     package_status: Optional[str] = Field(None, description="套餐状态")
     customer_name: str = Field(..., description="客户名称")
     purchasing_electricity_quantity: float = Field(..., description="购买电量(kWh)")
+    green_power_ratio: float = Field(0, description="绿电占比(%)")
     purchase_start_month: datetime = Field(..., description="购电开始月份")
     purchase_end_month: datetime = Field(..., description="购电结束月份")
     status: Literal["pending", "active", "expired"] = Field(..., description="合同状态")

@@ -288,6 +288,7 @@ class ContractService:
                 package_status=package_status,
                 customer_name=doc.get("customer_name", ""),
                 purchasing_electricity_quantity=doc.get("purchasing_electricity_quantity", 0),
+                green_power_ratio=doc.get("green_power_ratio", 0),
                 purchase_start_month=doc.get("purchase_start_month"),
                 purchase_end_month=doc.get("purchase_end_month"),
                 status=status,
@@ -312,7 +313,7 @@ class ContractService:
 
     def update(self, contract_id: str, contract_data: dict, operator: str) -> dict:
         """
-        更新合同（仅待生效状态）
+        更新合同
 
         Args:
             contract_id: 合同ID
@@ -323,7 +324,7 @@ class ContractService:
             更新后的合同信息
 
         Raises:
-            ValueError: 合同不存在或状态不允许编辑
+            ValueError: 合同不存在或数据校验失败
         """
         if not ObjectId.is_valid(contract_id):
             raise ValueError("无效的合同ID")
@@ -333,17 +334,7 @@ class ContractService:
         if not existing_contract:
             raise ValueError("合同不存在")
 
-        # 2. 计算当前状态
-        current_status = calculate_contract_status(
-            existing_contract.get("purchase_start_month"),
-            existing_contract.get("purchase_end_month")
-        )
-
-        # 3. 如果状态不是 pending，返回错误
-        if current_status != "pending":
-            raise ValueError(f"只能编辑待生效状态的合同，当前状态为：{current_status}")
-
-        # 4. 验证套餐和客户存在性（如果有更新）
+        # 2. 验证套餐和客户存在性（如果有更新）
         customer = None
         if "package_id" in contract_data:
             package_id = contract_data.get("package_id")
@@ -367,7 +358,7 @@ class ContractService:
             if not customer:
                 raise ValueError("客户不存在")
 
-        # 5. 检查日期范围重叠（如果更新了日期或客户）
+        # 3. 检查日期范围重叠（如果更新了日期或客户）
         customer_id_for_check = contract_data.get("customer_id", existing_contract.get("customer_id"))
         start_month_for_check = contract_data.get("purchase_start_month", existing_contract.get("purchase_start_month"))
         end_month_for_check = contract_data.get("purchase_end_month", existing_contract.get("purchase_end_month"))
@@ -379,7 +370,7 @@ class ContractService:
             if self._check_date_range_overlap(customer_id_for_check, start_month_for_check, end_month_for_check, exclude_contract_id=contract_id):
                 raise ValueError("该客户在指定日期范围内已存在其他合同，请检查日期设置")
 
-        # 6. 自动生成合同名称（如果更新了客户或日期）
+        # 4. 自动生成合同名称（如果更新了客户或日期）
         if (contract_data.get("customer_id") or contract_data.get("purchase_start_month")) and (
             "contract_name" not in contract_data or not contract_data["contract_name"]):
 
@@ -389,12 +380,12 @@ class ContractService:
             contract_name = self._generate_contract_name(customer_id_for_name, start_month_for_check)
             contract_data["contract_name"] = contract_name
 
-        # 7. 更新审计字段
+        # 5. 更新审计字段
         update_data = contract_data.copy()
         update_data["updated_at"] = datetime.now()
         update_data["updated_by"] = operator
 
-        # 8. 执行更新
+        # 6. 执行更新
         result = self.collection.update_one(
             {"_id": ObjectId(contract_id)},
             {"$set": update_data}
@@ -403,7 +394,7 @@ class ContractService:
         if result.matched_count == 0:
             raise ValueError("合同不存在")
 
-        # 9. 返回更新后的合同
+        # 7. 返回更新后的合同
         updated_contract = self.collection.find_one({"_id": ObjectId(contract_id)})
         return self._convert_to_dict_with_status(updated_contract)
 
