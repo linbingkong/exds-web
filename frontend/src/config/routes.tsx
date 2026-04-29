@@ -35,6 +35,7 @@ import UserPermissionsPage from '../pages/UserPermissionsPage';
 import MonthlyTradeReviewPage from '../pages/MonthlyTradeReviewPage';
 import CustomerProfitAnalysisPage from '../pages/CustomerProfitAnalysisPage';
 import DayAheadSimulationPage from '../pages/DayAheadSimulationPage';
+import RollingMatchQuotesPage from '../pages/RollingMatchQuotesPage';
 
 export interface RouteConfig {
     path: string;
@@ -74,6 +75,7 @@ export const routeConfigs: RouteConfig[] = [
     { path: '/price-forecast/monthly', title: '月度价格预测', component: PlaceholderPage },
 
     // 交易决策
+    { path: '/strategy/rolling-match-quotes', title: '月内滚动行情', component: RollingMatchQuotesPage },
     { path: '/trading-strategy/contract-curve', title: '月内交易策略', component: PlaceholderPage },
     { path: '/trading-strategy/monthly', title: '月度交易策略', component: PlaceholderPage },
     { path: '/trading-strategy/d-2', title: 'D-2交易策略', component: PlaceholderPage },

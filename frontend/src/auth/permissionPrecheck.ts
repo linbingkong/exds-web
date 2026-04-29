@@ -45,6 +45,7 @@ const ROUTE_PERMISSION_RULES: RoutePermissionRule[] = [
     { pattern: /^\/load-forecast\/short-term(\/.*)?$/, viewPermission: modulePermission('forecast_short_term_load', 'view') },
     { pattern: /^\/load-forecast\/accuracy-analysis(\/.*)?$/, viewPermission: modulePermission('forecast_short_term_load', 'view') },
     { pattern: /^\/load-forecast\/long-term(\/.*)?$/, viewPermission: modulePermission('forecast_mid_term_load', 'view') },
+    { pattern: /^\/strategy\/rolling-match-quotes(\/.*)?$/, viewPermission: modulePermission('rolling_match_quotes', 'view') },
     { pattern: /^\/trading-strategy\/monthly(\/.*)?$/, viewPermission: modulePermission('strategy_monthly', 'view') },
     { pattern: /^\/trading-strategy\/contract-curve(\/.*)?$/, viewPermission: modulePermission('strategy_intra_month', 'view') },
     { pattern: /^\/trading-strategy\/d-2(\/.*)?$/, viewPermission: modulePermission('strategy_dayahead', 'view') },

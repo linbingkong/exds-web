@@ -1016,3 +1016,102 @@ db.bid_strategy_results.createIndex({
 ```
 
 ---
+
+
+
+## 28. `frequency_regulation_demand` - 调频需求数据
+
+该集合存储日前与日内调频需求数据。
+
+- **数据来源**: `rpa.pipelines.frequency_regulation`
+- **更新频率**: 每日
+
+### 28.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `market_type` | String | **[复合主键]** 市场类型，取值 `day_ahead` 或 `intraday`。 |
+| `datetime` | ISODate | **[复合主键]** 数据点对应时间（按 `date_str + time_str` 生成，`24:00` 映射到次日 `00:00`）。 |
+| `date_str` | String | 业务日期，格式 `YYYY-MM-DD`。 |
+| `time_str` | String | 时间点，格式 `HH:MM`。 |
+| `demand_mw` | Number | 调频容量需求（MW）。 |
+
+### 28.2. 索引
+
+- `(market_type: 1, datetime: 1)`: 唯一复合索引，确保同一市场类型每个时间点唯一。
+- `(market_type: 1, date_str: 1)`: 普通复合索引，用于按市场类型和业务日期查询。
+
+---
+
+## 29. `frequency_regulation_clearing` - 调频出清数据
+
+该集合存储日前与日内调频出清信息。
+
+- **数据来源**: `rpa.pipelines.frequency_regulation`
+- **更新频率**: 每日
+
+### 29.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `market_type` | String | **[复合主键]** 市场类型，取值 `day_ahead` 或 `intraday`。 |
+| `datetime` | ISODate | **[复合主键]** 数据点对应时间（按 `date_str + time_str` 生成，`24:00` 映射到次日 `00:00`）。 |
+| `date_str` | String | 业务日期，格式 `YYYY-MM-DD`。 |
+| `time_str` | String | 时间点，格式 `HH:MM`。 |
+| `clearing_price` | Number | 调频出清价格。 |
+| `winning_resource_count` | Number | 中标调频资源数。 |
+| `avg_bid_price` | Number | 平均申报价格。 |
+
+### 29.2. 索引
+
+- `(market_type: 1, datetime: 1)`: 唯一复合索引，确保同一市场类型每个时间点唯一。
+- `(market_type: 1, date_str: 1)`: 普通复合索引，用于按市场类型和业务日期查询。
+
+---
+
+## 30. `rolling_match_snapshots` - 滚动撮合盘中快照
+
+该集合存储滚动撮合页面的接口采集快照，采用**按轮次宽文档**结构。
+
+- **数据来源**: `rpa.pipelines.rolling_match`
+- **更新频率**: 工作日盘中每 15 分钟一轮
+- **业务规则**:
+  - 实际采集时间：`01/16/31/46`
+  - 归档轮次 `snapshot_slot`：`00/15/30/45`
+  - 每条文档对应一个 `jy_time + cj_time + snapshot_slot`
+
+### 30.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `jy_time` | String | **[复合主键]** 交易开展日期，格式 `YYYY-MM-DD`。 |
+| `cj_time` | String | **[复合主键]** 标的成交日期，格式 `YYYY-MM-DD`。 |
+| `snapshot_slot` | String | **[复合主键]** 业务轮次标签，格式 `HH:MM`，只取 `00/15/30/45`。 |
+| `delivery_offset` | Number | `cj_time - jy_time` 的自然日偏移，通常为 `2-12`。 |
+| `collected_at` | ISODate | 脚本真实采集时间。 |
+| `trid` | String | 当日交易场次 ID。 |
+| `summary` | Object | 合计行汇总信息。 |
+| `summary.sf_energy` | Number | 售方挂牌电量。 |
+| `summary.gf_energy` | Number | 购方挂牌电量。 |
+| `summary.last_energy` | Number | 最新时刻成交电量。 |
+| `summary.last_price` | Number | 最新时刻成交电价。 |
+| `summary.sum_energy` | Number | 汇总成交电量。 |
+| `summary.sum_price` | Number | 汇总成交均价。 |
+| `periods` | Array | 48 个时段快照数组。 |
+| `periods.slot_id` | Number | 时段序号 `1-48`。 |
+| `periods.time_label` | String | 时段标签，如 `00:00~00:30(平)`。 |
+| `periods.sf_energy` | Number | 售方挂牌电量。 |
+| `periods.gf_energy` | Number | 购方挂牌电量。 |
+| `periods.last_energy` | Number | 最新时刻成交电量。 |
+| `periods.last_price` | Number | 最新时刻成交电价。 |
+| `periods.sum_energy` | Number | 汇总成交电量。 |
+| `periods.sum_price` | Number | 汇总成交均价。 |
+| `updated_at` | ISODate | 文档最后更新时间。 |
+
+### 30.2. 索引
+
+- `(jy_time: 1, cj_time: 1, snapshot_slot: 1)`: 唯一复合索引。
+- `(jy_time: 1, snapshot_slot: 1)`: 普通复合索引。
+- `(cj_time: 1, collected_at: -1)`: 普通复合索引。
+
+---

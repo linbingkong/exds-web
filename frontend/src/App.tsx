@@ -51,6 +51,7 @@ import UserPermissionsPage from './pages/UserPermissionsPage';
 import MonthlyTradeReviewPage from './pages/MonthlyTradeReviewPage';
 import CustomerProfitAnalysisPage from './pages/CustomerProfitAnalysisPage';
 import DayAheadSimulationPage from './pages/DayAheadSimulationPage';
+import RollingMatchQuotesPage from './pages/RollingMatchQuotesPage';
 import { TabProvider } from './contexts/TabContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { DesktopTabLayout } from './layouts/DesktopTabLayout';
@@ -118,6 +119,7 @@ const ResponsiveLayout: React.FC = () => {
                     <Route path="price-forecast/monthly" element={<PlaceholderPage />} />
 
                     {/* 交易决策 */}
+                    <Route path="strategy/rolling-match-quotes" element={<RollingMatchQuotesPage />} />
                     <Route path="trading-strategy/contract-curve" element={<PlaceholderPage />} />
                     <Route path="trading-strategy/monthly" element={<PlaceholderPage />} />
                     <Route path="trading-strategy/d-2" element={<PlaceholderPage />} />

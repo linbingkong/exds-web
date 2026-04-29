@@ -36,6 +36,7 @@ MODULE_DEFINITIONS: List[Dict[str, Any]] = [
     {"menu_group": "市场预测", "module_name": "短期负荷预测", "module_code": "forecast_short_term_load", "route_paths": ["/load-forecast/short-term"], "sort_order": 54},
     {"menu_group": "市场预测", "module_name": "中期负荷预测", "module_code": "forecast_mid_term_load", "route_paths": ["/load-forecast/long-term"], "sort_order": 55},
     {"menu_group": "交易策略", "module_name": "月度交易策略", "module_code": "strategy_monthly", "route_paths": ["/trading-strategy/monthly"], "sort_order": 60},
+    {"menu_group": "交易策略", "module_name": "月内滚动行情", "module_code": "rolling_match_quotes", "route_paths": ["/strategy/rolling-match-quotes"], "sort_order": 60},
     {"menu_group": "交易策略", "module_name": "月内交易策略", "module_code": "strategy_intra_month", "route_paths": ["/trading-strategy/contract-curve"], "sort_order": 61},
     {"menu_group": "交易策略", "module_name": "日前交易策略", "module_code": "strategy_dayahead", "route_paths": ["/trading-strategy/day-ahead"], "sort_order": 62},
     {"menu_group": "交易复盘", "module_name": "月度交易复盘", "module_code": "review_monthly", "route_paths": ["/trade-review/monthly-review"], "sort_order": 70},
