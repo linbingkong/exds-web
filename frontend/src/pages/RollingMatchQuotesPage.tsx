@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     Box,
     Typography,
@@ -22,12 +22,15 @@ import {
     Tooltip,
     useTheme,
     useMediaQuery,
+    Dialog,
 } from '@mui/material';
 import ArrowLeftIcon from '@mui/icons-material/ArrowLeft';
 import ArrowRightIcon from '@mui/icons-material/ArrowRight';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { zhCN } from 'date-fns/locale';
@@ -77,8 +80,10 @@ interface HistoryPoint {
     x_label: string;
     sum_price: number | null;
     sum_energy: number | null;
+    last_energy: number | null;
     sf_energy: number | null;
     gf_energy: number | null;
+    last_price: number | null;
 }
 
 interface PeriodHistoryData {
@@ -163,12 +168,13 @@ const PeriodTable: React.FC<{
                 <TableCell sx={{ p: 0.5, fontSize: '0.75rem', bgcolor: netHangBg }}>
                     {netHang == null ? '-' : `${netHang > 0 ? '+' : ''}${fmt(netHang)}`}
                 </TableCell>
-                <TableCell sx={{ p: 0.5, fontSize: '0.75rem' }}>{fmt(p.sum_energy)}</TableCell>
+                <TableCell sx={{ p: 0.5, fontSize: '0.75rem' }}>{fmt(p.last_energy)}</TableCell>
                 <TableCell sx={{ p: 0.5, fontSize: '0.75rem' }}>{fmt(p.sum_price)}</TableCell>
+                <TableCell sx={{ p: 0.5, fontSize: '0.75rem' }}>{fmt(p.sum_energy)}</TableCell>
                 <TableCell sx={{ p: 0.5 }}>
                     <Tooltip title="查看历史走势">
                         <IconButton size="small" onClick={() => onChartClick(p)}>
-                            <BarChartIcon sx={{ fontSize: 16 }} />
+                            <BarChartIcon sx={{ fontSize: 16, color: 'primary.main' }} />
                         </IconButton>
                     </Tooltip>
                 </TableCell>
@@ -188,6 +194,7 @@ const PeriodTable: React.FC<{
             <TableCell sx={{ p: 0.5, fontWeight: 'bold', fontSize: '0.75rem' }}>净挂</TableCell>
             <TableCell sx={{ p: 0.5, fontWeight: 'bold', fontSize: '0.75rem' }}>成交量</TableCell>
             <TableCell sx={{ p: 0.5, fontWeight: 'bold', fontSize: '0.75rem' }}>均价</TableCell>
+            <TableCell sx={{ p: 0.5, fontWeight: 'bold', fontSize: '0.75rem' }}>总量</TableCell>
             <TableCell sx={{ p: 0.5, fontWeight: 'bold', fontSize: '0.75rem' }}>操作</TableCell>
         </TableRow>
     );
@@ -214,6 +221,68 @@ const PeriodTable: React.FC<{
     );
 };
 
+const PeriodCards: React.FC<{
+    periods: PeriodQuote[];
+    prevPeriods: PeriodQuote[];
+    onChartClick: (period: PeriodQuote) => void;
+}> = ({ periods, prevPeriods, onChartClick }) => {
+    const getPrevPrice = (periodNum: number) => prevPeriods.find((p) => p.period === periodNum)?.last_price ?? null;
+
+    return (
+        <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', p: 0.75 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0.75 }}>
+                {periods.map((p) => {
+                    const prev = getPrevPrice(p.period);
+                    const diff = p.last_price != null && prev != null ? p.last_price - prev : null;
+                    const diffPct = diff != null && prev != null && prev !== 0 ? (diff / prev) * 100 : null;
+                    const netHang = p.gf_energy != null && p.sf_energy != null ? p.gf_energy - p.sf_energy : null;
+                    const isUp = diff != null && diff > 0;
+                    const isDown = diff != null && diff < 0;
+                    const priceColor = isUp ? '#d32f2f' : isDown ? '#388e3c' : 'inherit';
+                    const typeColor = getPeriodTypeColor(p.time_label);
+
+                    return (
+                        <Paper key={p.period} variant="outlined" sx={{ p: 0.75, position: 'relative', overflow: 'hidden' }}>
+                            <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, bgcolor: typeColor }} />
+                            <Box sx={{ pl: 0.75 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.25 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 700, flex: 1, fontSize: '0.7rem' }}>
+                                        {p.period}  {p.time_label ? p.time_label.split('(')[0].trim() : ''}
+                                    </Typography>
+                                    <IconButton size="small" onClick={() => onChartClick(p)} sx={{ p: 0.25 }}>
+                                        <BarChartIcon sx={{ fontSize: 14, color: 'primary.main' }} />
+                                    </IconButton>
+                                </Box>
+                                <Typography sx={{ fontWeight: 'bold', color: priceColor, fontSize: '0.95rem', lineHeight: 1.2 }}>
+                                    {fmt(p.last_price)}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: priceColor, fontSize: '0.62rem' }}>
+                                    {diff == null ? '-' : `${diff > 0 ? '+' : ''}${fmt(diff)}`}
+                                    {diffPct != null ? `  ${diffPct > 0 ? '+' : ''}${fmt(diffPct)}%` : ''}
+                                </Typography>
+                                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', mt: 0.5 }}>
+                                    {([
+                                        ['卖挂', fmt(p.sf_energy)],
+                                        ['买挂', fmt(p.gf_energy)],
+                                        ['净挂', netHang == null ? '-' : `${netHang > 0 ? '+' : ''}${fmt(netHang)}`],
+                                        ['均价', fmt(p.sum_price)],
+                                        ['成交量', fmt(p.last_energy)],
+                                        ['总量', fmt(p.sum_energy)],
+                                    ] as [string, string][]).map(([label, val]) => (
+                                        <Typography key={label} variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1.7 }}>
+                                            {label}: {val}
+                                        </Typography>
+                                    ))}
+                                </Box>
+                            </Box>
+                        </Paper>
+                    );
+                })}
+            </Box>
+        </Box>
+    );
+};
+
 const DRAWER_YAXIS_W = 52;
 const DRAWER_CHART_R = 16;
 
@@ -225,11 +294,39 @@ const PeriodHistoryDrawer: React.FC<{
     periods: PeriodQuote[];
     onPeriodChange: (period: PeriodQuote) => void;
 }> = ({ open, onClose, cjTime, period, periods, onPeriodChange }) => {
+    const drawerTheme = useTheme();
+    const isMobilePanel = useMediaQuery(drawerTheme.breakpoints.down('sm'));
     const [historyData, setHistoryData] = useState<PeriodHistoryData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [hoveredX, setHoveredX] = useState<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number; w: number } | null>(null);
+    const [chartMaximized, setChartMaximized] = useState(false);
+    const chartContainerRef = useRef<HTMLDivElement>(null);
+
+    // 移动端返回键关闭面板
+    useEffect(() => {
+        if (!open) return;
+        window.history.pushState({ chartPanel: true }, '');
+        const handler = () => { onClose(); };
+        window.addEventListener('popstate', handler);
+        return () => { window.removeEventListener('popstate', handler); };
+    }, [open, onClose]);
+
+    const handleFullscreen = useCallback(() => {
+        if (!chartContainerRef.current) return;
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else {
+            chartContainerRef.current.requestFullscreen().catch(() => {});
+        }
+    }, []);
+
+    useEffect(() => {
+        const handler = () => { setChartMaximized(!!document.fullscreenElement); };
+        document.addEventListener('fullscreenchange', handler);
+        return () => document.removeEventListener('fullscreenchange', handler);
+    }, []);
 
     const fetchHistory = useCallback(async () => {
         if (!period || !cjTime) return;
@@ -258,6 +355,7 @@ const PeriodHistoryDrawer: React.FC<{
             ...pt,
             net_hang: pt.gf_energy != null && pt.sf_energy != null ? +(pt.gf_energy - pt.sf_energy).toFixed(1) : null,
             sum_price: pt.sum_energy == null || pt.sum_energy === 0 ? null : pt.sum_price,
+            last_price: pt.last_energy == null || pt.last_energy === 0 ? null : pt.last_price,
         }));
     }, [historyData]);
 
@@ -313,21 +411,8 @@ const PeriodHistoryDrawer: React.FC<{
 
     const bandFill = (idx: number) => (idx % 2 === 0 ? 'rgba(25,118,210,0.06)' : 'transparent');
 
-    return (
-        <Drawer
-            anchor="right"
-            open={open}
-            onClose={onClose}
-            sx={{
-                '& .MuiDrawer-paper': {
-                    top: { xs: 56, sm: 64 },
-                    height: { xs: 'calc(100% - 56px)', sm: 'calc(100% - 64px)' },
-                    width: { xs: '95vw', md: '65vw' },
-                    display: 'flex',
-                    flexDirection: 'column',
-                },
-            }}
-        >
+    const panelInner = (
+        <>
             {/* ── 标题栏：关闭 | 交割日+标题 | 时段选择器 ── */}
             <Box
                 sx={{
@@ -346,24 +431,34 @@ const PeriodHistoryDrawer: React.FC<{
                     </IconButton>
                 </Box>
                 <Divider orientation="vertical" flexItem />
-                <Box sx={{ flex: 1, minWidth: 0, px: 2, py: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.4 }}>
-                        交割日 {cjTime}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}>
-                        {period
-                            ? `时段 ${period.period}${period.time_label ? '  ' + period.time_label.split('(')[0].trim() : ''}  历史走势`
-                            : '时段历史走势'}
-                    </Typography>
+                <Box sx={{ flex: 1, minWidth: 0, px: { xs: 1, sm: 2 }, py: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden' }}>
+                    {isMobilePanel ? (
+                        <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {cjTime.slice(5)}{period ? ` · 时段${period.period}` : ''} 走势
+                        </Typography>
+                    ) : (
+                        <>
+                            <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.4 }}>
+                                交割日 {cjTime}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}>
+                                {period
+                                    ? `时段 ${period.period}${period.time_label ? '  ' + period.time_label.split('(')[0].trim() : ''}  历史走势`
+                                    : '时段历史走势'}
+                            </Typography>
+                        </>
+                    )}
                 </Box>
                 {period && (
                     <>
                         <Divider orientation="vertical" flexItem />
-                        <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, gap: 1, flexShrink: 0 }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                                切换时段
-                            </Typography>
-                            <FormControl size="small" sx={{ minWidth: 180, maxWidth: 260 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', px: { xs: 0.5, sm: 1.5 }, gap: { xs: 0.5, sm: 1 }, flexShrink: 0 }}>
+                            {!isMobilePanel && (
+                                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                                    切换时段
+                                </Typography>
+                            )}
+                            <FormControl size="small" sx={{ minWidth: { xs: 110, sm: 180 }, maxWidth: { xs: 150, sm: 260 } }}>
                                 <Select
                                     value={period.period}
                                     onChange={(e) => {
@@ -382,6 +477,14 @@ const PeriodHistoryDrawer: React.FC<{
                         </Box>
                     </>
                 )}
+                <Divider orientation="vertical" flexItem />
+                <Box sx={{ display: 'flex', alignItems: 'center', px: 1 }}>
+                    <Tooltip title={chartMaximized ? '退出全屏' : '横屏全屏'}>
+                        <IconButton size="small" onClick={handleFullscreen}>
+                            {chartMaximized ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
+                        </IconButton>
+                    </Tooltip>
+                </Box>
             </Box>
 
             {/* ── 图表区域 ── */}
@@ -399,6 +502,7 @@ const PeriodHistoryDrawer: React.FC<{
                 )}
                 {!loading && chartData.length > 0 && (
                     <Box
+                        ref={chartContainerRef}
                         onMouseMove={handleContainerMouseMove}
                         onMouseLeave={handleMouseLeave}
                         sx={{
@@ -430,10 +534,10 @@ const PeriodHistoryDrawer: React.FC<{
                                     {hoveredPoint.jy_time}  {hoveredPoint.snapshot_slot}
                                 </Typography>
                                 <Typography variant="caption" sx={{ display: 'block' }}>
-                                    均价：{hoveredPoint.sum_price != null ? `${hoveredPoint.sum_price.toFixed(1)} 元/MWh` : '—'}
+                                    成交价：{hoveredPoint.last_price != null ? `${hoveredPoint.last_price.toFixed(1)} 元/MWh` : '—'}
                                 </Typography>
                                 <Typography variant="caption" sx={{ display: 'block' }}>
-                                    成交量：{hoveredPoint.sum_energy != null ? `${hoveredPoint.sum_energy.toFixed(1)} MWh` : '—'}
+                                    成交量：{hoveredPoint.last_energy != null ? `${hoveredPoint.last_energy.toFixed(1)} MWh` : '—'}
                                 </Typography>
                                 <Typography variant="caption" sx={{ display: 'block' }}>
                                     净挂量：{hoveredPoint.net_hang != null ? `${hoveredPoint.net_hang.toFixed(1)} MWh` : '—'}
@@ -441,7 +545,7 @@ const PeriodHistoryDrawer: React.FC<{
                             </Paper>
                         )}
 
-                        {/* 上图：均价走势（隐藏X轴刻度） */}
+                        {/* 上图：成交价走势（隐藏X轴刻度） */}
                         <Box sx={{ flex: '0 0 54%', minHeight: 0 }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <ComposedChart
@@ -462,7 +566,7 @@ const PeriodHistoryDrawer: React.FC<{
                                         <ReferenceArea key={g.jy_time} x1={g.first} x2={g.last} fill={bandFill(idx)} stroke="none" ifOverflow="hidden" />
                                     ))}
                                     {hoveredX && <ReferenceLine x={hoveredX} stroke="#64748b" strokeDasharray="4 4" />}
-                                    <Line type="monotone" dataKey="sum_price" stroke="#1565c0" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} name="成交均价" />
+                                    <Line type="monotone" dataKey="last_price" stroke="#1565c0" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} name="成交价" />
                                 </ComposedChart>
                             </ResponsiveContainer>
                         </Box>
@@ -495,7 +599,7 @@ const PeriodHistoryDrawer: React.FC<{
                                         <ReferenceArea key={g.jy_time} x1={g.first} x2={g.last} fill={bandFill(idx)} stroke="none" ifOverflow="hidden" />
                                     ))}
                                     {hoveredX && <ReferenceLine x={hoveredX} stroke="#64748b" strokeDasharray="4 4" />}
-                                    <Bar dataKey="sum_energy" name="成交量" fill="#42a5f5" isAnimationActive={false} />
+                                    <Bar dataKey="last_energy" name="成交量" fill="#42a5f5" isAnimationActive={false} />
                                     <Line type="monotone" dataKey="net_hang" name="净挂量" stroke="#ef5350" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />
                                 </ComposedChart>
                             </ResponsiveContainer>
@@ -537,6 +641,38 @@ const PeriodHistoryDrawer: React.FC<{
                     </Box>
                 )}
             </Box>
+        </>
+    );
+
+    if (isMobilePanel) {
+        return (
+            <Dialog
+                fullScreen
+                open={open}
+                onClose={onClose}
+                sx={{ '& .MuiDialog-paper': { display: 'flex', flexDirection: 'column' } }}
+            >
+                {panelInner}
+            </Dialog>
+        );
+    }
+
+    return (
+        <Drawer
+            anchor="right"
+            open={open}
+            onClose={onClose}
+            sx={{
+                '& .MuiDrawer-paper': {
+                    top: { xs: 56, sm: 64 },
+                    height: { xs: 'calc(100% - 56px)', sm: 'calc(100% - 64px)' },
+                    width: { xs: '95vw', md: '65vw' },
+                    display: 'flex',
+                    flexDirection: 'column',
+                },
+            }}
+        >
+            {panelInner}
         </Drawer>
     );
 };
@@ -544,6 +680,7 @@ const PeriodHistoryDrawer: React.FC<{
 const RollingMatchQuotesPage: React.FC = () => {
     const theme = useTheme();
     const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [rounds, setRounds] = useState<string[]>([]);
@@ -772,6 +909,26 @@ const RollingMatchQuotesPage: React.FC = () => {
                     </IconButton>
                 </Box>
 
+                {isTablet && days.length > 0 && (
+                    <>
+                        <Divider orientation="vertical" flexItem />
+                        <FormControl size="small" sx={{ minWidth: 130 }}>
+                            <Select
+                                value={selectedCjTime}
+                                onChange={(e) => setSelectedCjTime(e.target.value)}
+                                displayEmpty
+                                disabled={loadingDays}
+                            >
+                                {days.map((d) => (
+                                    <MenuItem key={d.cj_time} value={d.cj_time}>
+                                        {d.label} {d.cj_time.slice(5)} {d.weekday}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </>
+                )}
+
                 <Chip
                     label={status.label}
                     color={status.color}
@@ -986,6 +1143,12 @@ const RollingMatchQuotesPage: React.FC = () => {
                                     {selectedCjTime && selectedRound ? '暂无数据' : '请选择交割日和轮次'}
                                 </Typography>
                             </Box>
+                        ) : isMobile ? (
+                            <PeriodCards
+                                periods={periods}
+                                prevPeriods={prevQuotesData?.periods ?? []}
+                                onChartClick={handleChartClick}
+                            />
                         ) : (
                             <PeriodTable
                                 periods={periods}

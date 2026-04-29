@@ -162,6 +162,7 @@ def get_period_history(
             "x_label": f"{row['jy_time']} {slot}",
             "sum_price": pd.get("sum_price"),
             "sum_energy": pd.get("sum_energy"),
+            "last_energy": pd.get("last_energy"),
             "sf_energy": pd.get("sf_energy"),
             "gf_energy": pd.get("gf_energy"),
             "last_price": pd.get("last_price"),
