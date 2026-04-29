@@ -1069,7 +1069,43 @@ db.bid_strategy_results.createIndex({
 
 ---
 
-## 30. `rolling_match_snapshots` - 滚动撮合盘中快照
+## 30. `freq_comp_fee` - 调频补偿费用
+
+该集合存储“基础数据导入 -> 调频补偿费用”子页面导入的调频辅助服务市场费用表明细。
+
+- **数据来源**: 国网江西电力调度控制中心调频辅助服务市场费用 PDF
+- **更新频率**: 月度手工导入
+- **业务规则**:
+  - 月份从 PDF 文件内容识别，格式为 `YYYYMM`。
+  - 每条文档对应一个年月下的一家电厂。
+  - `_id = month + ":" + plant_name`，同一年月同一电厂重复导入时覆盖。
+  - 导入同一年月的新文件时，删除该年月本次文件中不存在的旧电厂记录。
+  - 不导入“火电合计”“水电合计”“合计”等汇总行。
+
+### 30.1. 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `_id` | String | **主键**，格式 `YYYYMM:电厂名称`。 |
+| `month` | String | 费用年月，格式 `YYYYMM`。 |
+| `plant_name` | String | 电厂名称。 |
+| `order` | Number | PDF 表格中的原始序号。 |
+| `on_grid_energy` | Number | 上网电量，单位万千瓦时。 |
+| `compensation_fee` | Number | 补偿费用，单位万元。 |
+| `allocation_fee` | Number | 分摊费用，单位万元。 |
+| `settlement_fee` | Number | 结算费用，单位万元。 |
+| `source_file_name` | String | 导入来源文件名。 |
+| `imported_at` | ISODate | 导入时间。 |
+| `imported_by` | String | 导入操作人。 |
+
+### 30.2. 索引
+
+- `_id_`: 默认唯一索引，确保同一年月同一电厂唯一。
+- `(month: 1, order: 1)`: 建议普通复合索引，用于按年月查询并保持表格顺序。
+
+---
+
+## 31. `rolling_match_snapshots` - 滚动撮合盘中快照
 
 该集合存储滚动撮合页面的接口采集快照，采用**按轮次宽文档**结构。
 
@@ -1080,7 +1116,7 @@ db.bid_strategy_results.createIndex({
   - 归档轮次 `snapshot_slot`：`00/15/30/45`
   - 每条文档对应一个 `jy_time + cj_time + snapshot_slot`
 
-### 30.1. 字段说明
+### 31.1. 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
@@ -1108,7 +1144,7 @@ db.bid_strategy_results.createIndex({
 | `periods.sum_price` | Number | 汇总成交均价。 |
 | `updated_at` | ISODate | 文档最后更新时间。 |
 
-### 30.2. 索引
+### 31.2. 索引
 
 - `(jy_time: 1, cj_time: 1, snapshot_slot: 1)`: 唯一复合索引。
 - `(jy_time: 1, snapshot_slot: 1)`: 普通复合索引。

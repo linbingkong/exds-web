@@ -3,6 +3,7 @@ import { Box, Typography, Tabs, Tab, useTheme, useMediaQuery } from '@mui/materi
 import RetailSettlementPriceTab from './tabs/RetailSettlementPriceTab';
 import MechanismEnergyTab from './tabs/MechanismEnergyTab';
 import CustomerMonthlyEnergyTab from './tabs/CustomerMonthlyEnergyTab';
+import FreqCompFeeTab from './tabs/FreqCompFeeTab';
 
 const MonthlyManualDataPage: React.FC = () => {
     const theme = useTheme();
@@ -30,6 +31,7 @@ const MonthlyManualDataPage: React.FC = () => {
                     <Tab label="零售结算价格" />
                     <Tab label="机制电量分配" />
                     <Tab label="客户结算月度电量" />
+                    <Tab label="调频补偿费用" />
                 </Tabs>
             </Box>
 
@@ -42,6 +44,9 @@ const MonthlyManualDataPage: React.FC = () => {
             </Box>
             <Box hidden={currentTab !== 2}>
                 {currentTab === 2 && <CustomerMonthlyEnergyTab />}
+            </Box>
+            <Box hidden={currentTab !== 3}>
+                {currentTab === 3 && <FreqCompFeeTab />}
             </Box>
         </Box>
     );

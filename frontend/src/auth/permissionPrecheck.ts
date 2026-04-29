@@ -128,8 +128,8 @@ const MUTATION_PERMISSION_RULES: MutationPermissionRule[] = [
     { methods: ['post'], pattern: /^\/api\/v1\/load-data\/reaggregate$/, allPermissions: [modulePermission('basic_monthly_manual_import', 'edit'), 'load:data:reaggregate'] },
     { methods: ['post'], pattern: /^\/api\/v1\/load-data\/(calibration\/preview|calibration\/calculate|calibration\/apply|calibration\/details)$/, allPermissions: [modulePermission('basic_monthly_manual_import', 'edit')] },
     { methods: ['post'], pattern: /^\/api\/v1\/load-data\/diagnose$/, allPermissions: [modulePermission('basic_load_validation', 'edit')] },
-    { methods: ['post'], pattern: /^\/api\/v1\/(mechanism-energy|customer-energy|wholesale-monthly-settlement)\/import$/, allPermissions: [modulePermission('basic_monthly_manual_import', 'edit')] },
-    { methods: ['delete'], pattern: /^\/api\/v1\/customer-energy\/[^/]+$/, allPermissions: [modulePermission('basic_monthly_manual_import', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/(mechanism-energy|customer-energy|wholesale-monthly-settlement|freq-comp-fee)\/import$/, allPermissions: [modulePermission('basic_monthly_manual_import', 'edit')] },
+    { methods: ['delete'], pattern: /^\/api\/v1\/(customer-energy|freq-comp-fee)\/[^/]+$/, allPermissions: [modulePermission('basic_monthly_manual_import', 'edit')] },
 
     {
         methods: ['post'],
