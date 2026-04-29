@@ -52,6 +52,7 @@ import MonthlyTradeReviewPage from './pages/MonthlyTradeReviewPage';
 import CustomerProfitAnalysisPage from './pages/CustomerProfitAnalysisPage';
 import DayAheadSimulationPage from './pages/DayAheadSimulationPage';
 import RollingMatchQuotesPage from './pages/RollingMatchQuotesPage';
+import FreqRegulationMarketPage from './pages/FreqRegulationMarketPage';
 import { TabProvider } from './contexts/TabContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { DesktopTabLayout } from './layouts/DesktopTabLayout';
@@ -138,6 +139,9 @@ const ResponsiveLayout: React.FC = () => {
                     <Route path="settlement/monthly-analysis" element={<MonthlySettlementAnalysisPage />} />
                     <Route path="settlement/monthly-customer-detail" element={<SingleCustomerMonthlyDetailPage />} />
                     <Route path="settlement/profit-analysis" element={<CustomerProfitAnalysisPage />} />
+
+                    {/* 储能运营 */}
+                    <Route path="energy-storage/freq-regulation-market" element={<FreqRegulationMarketPage />} />
 
                     {/* 基础数据 */}
                     <Route path="basic-data/grid-price" element={<GridAgencyPricePage />} />

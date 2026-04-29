@@ -21,6 +21,7 @@ from webapp.api import (
     v1_customer_profit_analysis,
     v1_dashboard,
     v1_bid,
+    v1_freq_regulation,
     medium_term_forecast,  # New module
     v1_rolling_match,
 )
@@ -63,6 +64,7 @@ router.include_router(v1_intent_customer_diagnosis.router)
 router.include_router(v1_customer_profit_analysis.router, prefix="/customer-profit-analysis", tags=["Customer Profit Analysis"])
 router.include_router(v1_dashboard.router)
 router.include_router(v1_bid.router)
+router.include_router(v1_freq_regulation.router)
 router.include_router(v1_rolling_match.router)
 
 # Include additional routers previously in main.py

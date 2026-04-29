@@ -1,0 +1,862 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    Alert,
+    Box,
+    Button,
+    ButtonGroup,
+    CircularProgress,
+    IconButton,
+    Paper,
+    Stack,
+    Tab,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Tabs,
+    Typography,
+    useMediaQuery,
+    useTheme,
+} from '@mui/material';
+import Grid from '@mui/material/Grid';
+import ArrowLeftIcon from '@mui/icons-material/ArrowLeft';
+import ArrowRightIcon from '@mui/icons-material/ArrowRight';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import InsightsIcon from '@mui/icons-material/Insights';
+import QueryStatsIcon from '@mui/icons-material/QueryStats';
+import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { zhCN } from 'date-fns/locale';
+import {
+    addDays,
+    endOfMonth,
+    endOfYear,
+    format,
+    startOfMonth,
+    startOfYear,
+    subDays,
+    subMonths,
+    subYears,
+} from 'date-fns';
+import {
+    Area,
+    Bar,
+    CartesianGrid,
+    ComposedChart,
+    Legend,
+    Line,
+    LineChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from 'recharts';
+import {
+    FreqDailyResponse,
+    FreqMonthlyResponse,
+    FreqRangeResponse,
+    freqRegulationApi,
+} from '../api/freqRegulation';
+import { useChartFullscreen } from '../hooks/useChartFullscreen';
+
+type TabPanelProps = {
+    children: React.ReactNode;
+    index: number;
+    value: number;
+};
+
+type KpiCardProps = {
+    label: string;
+    value: number | string | null | undefined;
+    unit?: string;
+    accent?: string;
+};
+
+type ChartPanelProps = {
+    title: string;
+    children: React.ReactNode;
+    height?: number | { xs: number; sm: number };
+};
+
+const daColor = '#1f77b4';
+const idColor = '#d62728';
+const demandColor = '#2ca02c';
+const resourceColor = '#ff7f0e';
+
+function TabPanel({ children, value, index }: TabPanelProps) {
+    return (
+        <Box role="tabpanel" hidden={value !== index}>
+            {value === index && <Box sx={{ pt: 2 }}>{children}</Box>}
+        </Box>
+    );
+}
+
+function formatNumber(value: number | string | null | undefined, digits = 2): string {
+    if (value === null || value === undefined || value === '') {
+        return '--';
+    }
+    if (typeof value === 'string') {
+        return value;
+    }
+    return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(digits);
+}
+
+function formatTooltipValue(value: any): string {
+    if (value === null || value === undefined) {
+        return '--';
+    }
+    if (typeof value === 'number') {
+        return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
+    }
+    return String(value);
+}
+
+function KpiCard({ label, value, unit, accent = daColor }: KpiCardProps) {
+    return (
+        <Paper
+            variant="outlined"
+            sx={{
+                p: { xs: 1.5, sm: 2 },
+                minHeight: 92,
+                borderLeft: `4px solid ${accent}`,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+            }}
+        >
+            <Typography variant="body2" color="text.secondary">
+                {label}
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 1 }}>
+                <Typography variant="h5" sx={{ fontWeight: 700, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    {formatNumber(value)}
+                </Typography>
+                {unit && (
+                    <Typography variant="body2" color="text.secondary">
+                        {unit}
+                    </Typography>
+                )}
+            </Box>
+        </Paper>
+    );
+}
+
+function LoadingOverlay({ visible }: { visible: boolean }) {
+    if (!visible) return null;
+    return (
+        <Box
+            sx={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'rgba(255,255,255,0.7)',
+            }}
+        >
+            <CircularProgress size={28} />
+        </Box>
+    );
+}
+
+function ChartPanel({ title, children, height = { xs: 320, sm: 360 } }: ChartPanelProps) {
+    const chartRef = useRef<HTMLDivElement>(null);
+    const { isFullscreen, FullscreenEnterButton, FullscreenExitButton, FullscreenTitle } = useChartFullscreen({
+        chartRef,
+        title,
+    });
+
+    return (
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, height: '100%' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                {title}
+            </Typography>
+            <Box
+                ref={chartRef}
+                sx={{
+                    height: isFullscreen ? '100vh' : height,
+                    width: '100%',
+                    position: isFullscreen ? 'fixed' : 'relative',
+                    top: isFullscreen ? 0 : 'auto',
+                    left: isFullscreen ? 0 : 'auto',
+                    zIndex: isFullscreen ? 1400 : 'auto',
+                    backgroundColor: isFullscreen ? 'background.paper' : 'transparent',
+                    p: isFullscreen ? 2 : 0,
+                    '& .recharts-surface:focus': { outline: 'none' },
+                    '& *:focus': { outline: 'none !important' },
+                }}
+            >
+                <FullscreenEnterButton />
+                <FullscreenExitButton />
+                <FullscreenTitle />
+                {children}
+            </Box>
+        </Paper>
+    );
+}
+
+function EmptyState({ text = '暂无数据' }: { text?: string }) {
+    return (
+        <Box sx={{ minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+                {text}
+            </Typography>
+        </Box>
+    );
+}
+
+function DailyCurveTab() {
+    const [date, setDate] = useState<Date | null>(subDays(new Date(), 1));
+    const [data, setData] = useState<FreqDailyResponse | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const loadData = useCallback(async () => {
+        if (!date) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await freqRegulationApi.fetchDaily(format(date, 'yyyy-MM-dd'));
+            setData(response.data);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || err.message || '获取调频市场日曲线失败');
+        } finally {
+            setLoading(false);
+        }
+    }, [date]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    const points = data?.points || [];
+    const hasData = points.length > 0;
+
+    return (
+        <Box sx={{ position: 'relative' }}>
+            {loading && !data ? (
+                <Box sx={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <CircularProgress />
+                </Box>
+            ) : (
+                <>
+                    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                    <LoadingOverlay visible={loading && !!data} />
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 2 }}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                            <IconButton disabled={loading || !date} onClick={() => date && setDate(addDays(date, -1))}>
+                                <ArrowLeftIcon />
+                            </IconButton>
+                            <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
+                                <DatePicker
+                                    label="日期"
+                                    value={date}
+                                    onChange={(value) => setDate(value)}
+                                    disabled={loading}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                />
+                            </LocalizationProvider>
+                            <IconButton disabled={loading || !date} onClick={() => date && setDate(addDays(date, 1))}>
+                                <ArrowRightIcon />
+                            </IconButton>
+                        </Stack>
+                        <Button variant="outlined" startIcon={<CalendarMonthIcon />} disabled={loading} onClick={() => setDate(subDays(new Date(), 1))}>
+                            昨日
+                        </Button>
+                    </Stack>
+
+                    <Box
+                        sx={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                            gap: { xs: 1.5, sm: 2 },
+                            mb: 2,
+                        }}
+                    >
+                        <KpiCard label="日前均出清价格" value={data?.kpis.day_ahead_avg_clearing_price} unit="¥/MWh" accent={daColor} />
+                        <KpiCard label="日内均出清价格" value={data?.kpis.intraday_avg_clearing_price} unit="¥/MWh" accent={idColor} />
+                        <KpiCard label="日前-日内价差" value={data?.kpis.spread_avg_clearing_price} unit="¥/MWh" accent="#455a64" />
+                        <KpiCard label="日前均需求" value={data?.kpis.day_ahead_avg_demand_mw} unit="MW" accent={demandColor} />
+                        <KpiCard label="日内均需求" value={data?.kpis.intraday_avg_demand_mw} unit="MW" accent={resourceColor} />
+                    </Box>
+
+                    {!hasData ? (
+                        <EmptyState text="当前日期暂无调频市场数据" />
+                    ) : (
+                        <Grid container spacing={{ xs: 1.5, sm: 2 }}>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="出清价格 (¥/MWh)">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={points} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="time" />
+                                            <YAxis />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Line name="日前" type="monotone" dataKey="day_ahead_clearing_price" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内" type="monotone" dataKey="intraday_clearing_price" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="需求容量 (MW)">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={points} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="time" />
+                                            <YAxis />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Line name="日前" type="monotone" dataKey="day_ahead_demand_mw" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内" type="monotone" dataKey="intraday_demand_mw" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="平均报价 (¥/MWh)">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={points} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="time" />
+                                            <YAxis />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Line name="日前" type="monotone" dataKey="day_ahead_avg_bid_price" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内" type="monotone" dataKey="intraday_avg_bid_price" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="中标资源数 (个)">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={points} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="time" />
+                                            <YAxis allowDecimals={false} />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Line name="日前" type="monotone" dataKey="day_ahead_winning_resource_count" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内" type="monotone" dataKey="intraday_winning_resource_count" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                        </Grid>
+                    )}
+                </>
+            )}
+        </Box>
+    );
+}
+
+function RangeAnalysisTab() {
+    const [startDate, setStartDate] = useState<Date | null>(startOfMonth(new Date()));
+    const [endDate, setEndDate] = useState<Date | null>(new Date());
+    const [dayAheadData, setDayAheadData] = useState<FreqRangeResponse | null>(null);
+    const [intradayData, setIntradayData] = useState<FreqRangeResponse | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const applyDatePreset = (preset: 'thisMonth' | 'lastMonth' | 'last30' | 'last60' | 'last90') => {
+        const today = new Date();
+        if (preset === 'thisMonth') {
+            setStartDate(startOfMonth(today));
+            setEndDate(today);
+        } else if (preset === 'lastMonth') {
+            const lastMonth = subMonths(today, 1);
+            setStartDate(startOfMonth(lastMonth));
+            setEndDate(endOfMonth(lastMonth));
+        } else {
+            const days = preset === 'last30' ? 30 : preset === 'last60' ? 60 : 90;
+            setStartDate(subDays(today, days - 1));
+            setEndDate(today);
+        }
+    };
+
+    const loadData = useCallback(async () => {
+        if (!startDate || !endDate) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const params = {
+                start_date: format(startDate, 'yyyy-MM-dd'),
+                end_date: format(endDate, 'yyyy-MM-dd'),
+            };
+            const [dayAheadResponse, intradayResponse] = await Promise.all([
+                freqRegulationApi.fetchRange({ ...params, market_type: 'day_ahead' }),
+                freqRegulationApi.fetchRange({ ...params, market_type: 'intraday' }),
+            ]);
+            setDayAheadData(dayAheadResponse.data);
+            setIntradayData(intradayResponse.data);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || err.message || '获取调频市场区间分析失败');
+        } finally {
+            setLoading(false);
+        }
+    }, [endDate, startDate]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    const hourlyStats = useMemo(() => {
+        const byTime = new Map<string, any>();
+        (dayAheadData?.hourly_stats || []).forEach((row) => {
+            byTime.set(row.time, {
+                ...(byTime.get(row.time) || {}),
+                time: row.time,
+                day_ahead_avg_clearing_price: row.avg_clearing_price,
+                day_ahead_clearing_base: row.clearing_price_lower,
+                day_ahead_clearing_band:
+                    row.clearing_price_lower !== null && row.clearing_price_upper !== null
+                        ? row.clearing_price_upper - row.clearing_price_lower
+                        : null,
+                day_ahead_avg_demand_mw: row.avg_demand_mw,
+                day_ahead_demand_base: row.demand_mw_lower,
+                day_ahead_demand_band:
+                    row.demand_mw_lower !== null && row.demand_mw_upper !== null
+                        ? row.demand_mw_upper - row.demand_mw_lower
+                        : null,
+            });
+        });
+        (intradayData?.hourly_stats || []).forEach((row) => {
+            byTime.set(row.time, {
+                ...(byTime.get(row.time) || {}),
+                time: row.time,
+                intraday_avg_clearing_price: row.avg_clearing_price,
+                intraday_clearing_base: row.clearing_price_lower,
+                intraday_clearing_band:
+                    row.clearing_price_lower !== null && row.clearing_price_upper !== null
+                        ? row.clearing_price_upper - row.clearing_price_lower
+                        : null,
+                intraday_avg_demand_mw: row.avg_demand_mw,
+                intraday_demand_base: row.demand_mw_lower,
+                intraday_demand_band:
+                    row.demand_mw_lower !== null && row.demand_mw_upper !== null
+                        ? row.demand_mw_upper - row.demand_mw_lower
+                        : null,
+            });
+        });
+        return Array.from(byTime.values()).sort((a, b) => a.time.localeCompare(b.time));
+    }, [dayAheadData, intradayData]);
+
+    const dailyTrends = useMemo(() => {
+        const byDate = new Map<string, any>();
+        (dayAheadData?.daily_trends || []).forEach((row) => {
+            byDate.set(row.date, {
+                ...(byDate.get(row.date) || {}),
+                date: row.date,
+                day_ahead_avg_clearing_price: row.avg_clearing_price,
+                day_ahead_avg_demand_mw: row.avg_demand_mw,
+            });
+        });
+        (intradayData?.daily_trends || []).forEach((row) => {
+            byDate.set(row.date, {
+                ...(byDate.get(row.date) || {}),
+                date: row.date,
+                intraday_avg_clearing_price: row.avg_clearing_price,
+                intraday_avg_demand_mw: row.avg_demand_mw,
+            });
+        });
+        return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+    }, [dayAheadData, intradayData]);
+
+    const hasLoadedData = !!dayAheadData || !!intradayData;
+
+    return (
+        <Box sx={{ position: 'relative' }}>
+            {loading && !hasLoadedData ? (
+                <Box sx={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <CircularProgress />
+                </Box>
+            ) : (
+                <>
+                    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                    <LoadingOverlay visible={loading && hasLoadedData} />
+                    <Stack spacing={1.5} sx={{ mb: 2 }}>
+                        <ButtonGroup variant="outlined" size="small" sx={{ flexWrap: 'wrap' }}>
+                            <Button disabled={loading} onClick={() => applyDatePreset('thisMonth')}>本月</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('lastMonth')}>上月</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('last30')}>近30天</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('last60')}>近60天</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('last90')}>近90天</Button>
+                        </ButtonGroup>
+                        <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                                <DatePicker
+                                    label="开始日期"
+                                    value={startDate}
+                                    onChange={(value) => setStartDate(value)}
+                                    disabled={loading}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                />
+                                <DatePicker
+                                    label="结束日期"
+                                    value={endDate}
+                                    onChange={(value) => setEndDate(value)}
+                                    disabled={loading}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                />
+                            </Stack>
+                        </LocalizationProvider>
+                    </Stack>
+
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+                        <InsightsIcon color="primary" fontSize="small" />
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            日平均曲线
+                        </Typography>
+                    </Stack>
+                    {hourlyStats.length === 0 ? (
+                        <EmptyState text="当前区间暂无调频市场数据" />
+                    ) : (
+                        <Grid container spacing={{ xs: 1.5, sm: 2 }} sx={{ mb: 2 }}>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="平均出清价格 ± std">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <ComposedChart data={hourlyStats} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="time" />
+                                            <YAxis />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Area dataKey="day_ahead_clearing_base" stackId="daPriceStd" stroke="none" fill="transparent" legendType="none" />
+                                            <Area name="日前 ±std" dataKey="day_ahead_clearing_band" stackId="daPriceStd" stroke="none" fill={daColor} fillOpacity={0.15} />
+                                            <Area dataKey="intraday_clearing_base" stackId="idPriceStd" stroke="none" fill="transparent" legendType="none" />
+                                            <Area name="日内 ±std" dataKey="intraday_clearing_band" stackId="idPriceStd" stroke="none" fill={idColor} fillOpacity={0.12} />
+                                            <Line name="日前均值" type="monotone" dataKey="day_ahead_avg_clearing_price" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内均值" type="monotone" dataKey="intraday_avg_clearing_price" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="平均需求容量 ± std">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <ComposedChart data={hourlyStats} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="time" />
+                                            <YAxis />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Area dataKey="day_ahead_demand_base" stackId="daDemandStd" stroke="none" fill="transparent" legendType="none" />
+                                            <Area name="日前 ±std" dataKey="day_ahead_demand_band" stackId="daDemandStd" stroke="none" fill={daColor} fillOpacity={0.15} />
+                                            <Area dataKey="intraday_demand_base" stackId="idDemandStd" stroke="none" fill="transparent" legendType="none" />
+                                            <Area name="日内 ±std" dataKey="intraday_demand_band" stackId="idDemandStd" stroke="none" fill={idColor} fillOpacity={0.12} />
+                                            <Line name="日前均值" type="monotone" dataKey="day_ahead_avg_demand_mw" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内均值" type="monotone" dataKey="intraday_avg_demand_mw" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                        </Grid>
+                    )}
+
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+                        <QueryStatsIcon color="primary" fontSize="small" />
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            日度趋势
+                        </Typography>
+                    </Stack>
+                    {dailyTrends.length === 0 ? (
+                        <EmptyState text="当前区间暂无日度趋势数据" />
+                    ) : (
+                        <Grid container spacing={{ xs: 1.5, sm: 2 }}>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="日均出清价格走势">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={dailyTrends} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="date" minTickGap={24} />
+                                            <YAxis />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Line name="日前日均出清价格" type="monotone" dataKey="day_ahead_avg_clearing_price" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内日均出清价格" type="monotone" dataKey="intraday_avg_clearing_price" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                                <ChartPanel title="日均需求容量走势">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={dailyTrends} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="date" minTickGap={24} />
+                                            <YAxis />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Line name="日前日均需求容量" type="monotone" dataKey="day_ahead_avg_demand_mw" stroke={daColor} strokeWidth={2} dot={false} connectNulls />
+                                            <Line name="日内日均需求容量" type="monotone" dataKey="intraday_avg_demand_mw" stroke={idColor} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Grid>
+                        </Grid>
+                    )}
+                </>
+            )}
+        </Box>
+    );
+}
+
+function MonthlyTrendTab() {
+    const [startMonth, setStartMonth] = useState<Date | null>(startOfYear(new Date()));
+    const [endMonth, setEndMonth] = useState<Date | null>(new Date());
+    const [data, setData] = useState<FreqMonthlyResponse | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const applyMonthPreset = (preset: 'thisYear' | 'lastYear' | 'last12' | 'last24' | 'last36') => {
+        const today = new Date();
+        if (preset === 'thisYear') {
+            setStartMonth(startOfYear(today));
+            setEndMonth(today);
+        } else if (preset === 'lastYear') {
+            const lastYear = subYears(today, 1);
+            setStartMonth(startOfYear(lastYear));
+            setEndMonth(endOfYear(lastYear));
+        } else {
+            const months = preset === 'last12' ? 12 : preset === 'last24' ? 24 : 36;
+            setStartMonth(startOfMonth(subMonths(today, months - 1)));
+            setEndMonth(today);
+        }
+    };
+
+    const loadData = useCallback(async () => {
+        if (!startMonth || !endMonth) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await freqRegulationApi.fetchMonthly({
+                start_month: format(startMonth, 'yyyy-MM'),
+                end_month: format(endMonth, 'yyyy-MM'),
+            });
+            setData(response.data);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || err.message || '获取调频市场月度趋势失败');
+        } finally {
+            setLoading(false);
+        }
+    }, [endMonth, startMonth]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    const rows = data?.rows || [];
+
+    return (
+        <Box sx={{ position: 'relative' }}>
+            {loading && !data ? (
+                <Box sx={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <CircularProgress />
+                </Box>
+            ) : (
+                <>
+                    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                    <LoadingOverlay visible={loading && !!data} />
+                    <Stack spacing={1.5} sx={{ mb: 2 }}>
+                        <ButtonGroup variant="outlined" size="small" sx={{ flexWrap: 'wrap' }}>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('thisYear')}>今年</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('lastYear')}>去年</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('last12')}>近12个月</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('last24')}>近24个月</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('last36')}>近36个月</Button>
+                        </ButtonGroup>
+                        <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                                <DatePicker
+                                    label="开始月份"
+                                    views={['year', 'month']}
+                                    value={startMonth}
+                                    onChange={(value) => setStartMonth(value)}
+                                    disabled={loading}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                />
+                                <DatePicker
+                                    label="结束月份"
+                                    views={['year', 'month']}
+                                    value={endMonth}
+                                    onChange={(value) => setEndMonth(value)}
+                                    disabled={loading}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                />
+                            </Stack>
+                        </LocalizationProvider>
+                    </Stack>
+
+                    <Box
+                        sx={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                            gap: { xs: 1.5, sm: 2 },
+                            mb: 2,
+                        }}
+                    >
+                        <KpiCard label="日前期间均价" value={data?.kpis.day_ahead_period_avg_price} unit="¥/MWh" accent={daColor} />
+                        <KpiCard label="日内期间均价" value={data?.kpis.intraday_period_avg_price} unit="¥/MWh" accent={idColor} />
+                        <KpiCard label="月均日前-日内价差" value={data?.kpis.spread_monthly_avg_price} unit="¥/MWh" accent="#455a64" />
+                        <KpiCard label="最高价月份" value={data?.kpis.highest_price_month} accent={resourceColor} />
+                        <KpiCard label="最低价月份" value={data?.kpis.lowest_price_month} accent={demandColor} />
+                    </Box>
+
+                    {rows.length === 0 ? (
+                        <EmptyState text="当前月份范围暂无调频市场数据" />
+                    ) : (
+                        <Stack spacing={2}>
+                            <ChartPanel title="月均出清价格组合图" height={{ xs: 360, sm: 420 }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <ComposedChart data={rows} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis dataKey="month" />
+                                        <YAxis yAxisId="price" />
+                                        <YAxis yAxisId="spread" orientation="right" />
+                                        <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                        <Legend />
+                                        <Bar yAxisId="price" name="日前均价" dataKey="day_ahead_avg_clearing_price" fill={daColor} maxBarSize={36} />
+                                        <Bar yAxisId="price" name="日内均价" dataKey="intraday_avg_clearing_price" fill={idColor} maxBarSize={36} />
+                                        <Line yAxisId="spread" name="价差" type="monotone" dataKey="spread_avg_clearing_price" stroke="#455a64" strokeWidth={2} dot={false} connectNulls />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
+                            </ChartPanel>
+
+                            <Grid container spacing={{ xs: 1.5, sm: 2 }}>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <ChartPanel title="月均需求容量">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={rows} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis dataKey="month" />
+                                                <YAxis />
+                                                <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                                <Legend />
+                                                <Bar name="日前需求" dataKey="day_ahead_avg_demand_mw" fill={daColor} maxBarSize={32} />
+                                                <Bar name="日内需求" dataKey="intraday_avg_demand_mw" fill={idColor} maxBarSize={32} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </ChartPanel>
+                                </Grid>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <ChartPanel title="月均平均报价">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={rows} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis dataKey="month" />
+                                                <YAxis />
+                                                <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                                <Legend />
+                                                <Bar name="日前报价" dataKey="day_ahead_avg_bid_price" fill={daColor} maxBarSize={32} />
+                                                <Bar name="日内报价" dataKey="intraday_avg_bid_price" fill={idColor} maxBarSize={32} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </ChartPanel>
+                                </Grid>
+                            </Grid>
+
+                            <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                                    月度汇总表
+                                </Typography>
+                                <TableContainer sx={{ overflowX: 'auto' }}>
+                                    <Table
+                                        size="small"
+                                        sx={{
+                                            minWidth: 900,
+                                            '& .MuiTableCell-root': {
+                                                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                                                px: { xs: 0.75, sm: 1.5 },
+                                            },
+                                        }}
+                                    >
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>月份</TableCell>
+                                                <TableCell align="right">日前均价</TableCell>
+                                                <TableCell align="right">日内均价</TableCell>
+                                                <TableCell align="right">价差</TableCell>
+                                                <TableCell align="right">日前需求</TableCell>
+                                                <TableCell align="right">日内需求</TableCell>
+                                                <TableCell align="right">日前报价</TableCell>
+                                                <TableCell align="right">日内报价</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {rows.map((row) => (
+                                                <TableRow key={row.month} hover>
+                                                    <TableCell>{row.month}</TableCell>
+                                                    <TableCell align="right">{formatNumber(row.day_ahead_avg_clearing_price)}</TableCell>
+                                                    <TableCell align="right">{formatNumber(row.intraday_avg_clearing_price)}</TableCell>
+                                                    <TableCell align="right">{formatNumber(row.spread_avg_clearing_price)}</TableCell>
+                                                    <TableCell align="right">{formatNumber(row.day_ahead_avg_demand_mw)}</TableCell>
+                                                    <TableCell align="right">{formatNumber(row.intraday_avg_demand_mw)}</TableCell>
+                                                    <TableCell align="right">{formatNumber(row.day_ahead_avg_bid_price)}</TableCell>
+                                                    <TableCell align="right">{formatNumber(row.intraday_avg_bid_price)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            </Paper>
+                        </Stack>
+                    )}
+                </>
+            )}
+        </Box>
+    );
+}
+
+const FreqRegulationMarketPage: React.FC = () => {
+    const [tabIndex, setTabIndex] = useState(0);
+    const theme = useTheme();
+    const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+
+    return (
+        <Box
+            sx={{
+                width: '100%',
+                px: { xs: 1.5, sm: 2 },
+                pt: { xs: 1.5, sm: 2 },
+                pb: { xs: 1.5, sm: 2 },
+            }}
+        >
+            {isTablet && (
+                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 'bold', color: 'text.primary' }}>
+                    储能运营 / 调频市场价格
+                </Typography>
+            )}
+
+            <Paper variant="outlined" sx={{ borderColor: 'divider' }}>
+                <Tabs
+                    value={tabIndex}
+                    onChange={(_, value) => setTabIndex(value)}
+                    variant="scrollable"
+                    scrollButtons="auto"
+                    aria-label="调频市场价格"
+                >
+                    <Tab label="日曲线" />
+                    <Tab label="区间分析" />
+                    <Tab label="月度趋势" />
+                </Tabs>
+            </Paper>
+
+            <TabPanel value={tabIndex} index={0}>
+                <DailyCurveTab />
+            </TabPanel>
+            <TabPanel value={tabIndex} index={1}>
+                <RangeAnalysisTab />
+            </TabPanel>
+            <TabPanel value={tabIndex} index={2}>
+                <MonthlyTrendTab />
+            </TabPanel>
+        </Box>
+    );
+};
+
+export default FreqRegulationMarketPage;

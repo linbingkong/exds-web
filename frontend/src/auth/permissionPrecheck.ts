@@ -59,6 +59,7 @@ const ROUTE_PERMISSION_RULES: RoutePermissionRule[] = [
     { pattern: /^\/settlement\/monthly-overview(\/.*)?$/, viewPermission: modulePermission('settlement_monthly_overview', 'view') },
     { pattern: /^\/settlement\/monthly-analysis(\/.*)?$/, viewPermission: modulePermission('settlement_monthly_detail', 'view') },
     { pattern: /^\/settlement\/monthly-customer-detail(\/.*)?$/, viewPermission: modulePermission('settlement_monthly_detail', 'view') },
+    { pattern: /^\/energy-storage\/freq-regulation-market(\/.*)?$/, viewPermission: modulePermission('freq_regulation_market', 'view') },
     { pattern: /^\/basic-data\/grid-price(\/.*)?$/, viewPermission: modulePermission('basic_sgcc_price', 'view') },
     { pattern: /^\/basic-data\/tou-definition(\/.*)?$/, viewPermission: modulePermission('basic_tou_definition', 'view') },
     { pattern: /^\/basic-data\/load-validation(\/.*)?$/, viewPermission: modulePermission('basic_load_validation', 'view') },

@@ -128,6 +128,13 @@ const menuItems: MenuItem[] = [
         ],
     },
     {
+        text: '储能运营',
+        icon: <StorageOutlined />,
+        subItems: [
+            { text: '调频市场价格', path: '/energy-storage/freq-regulation-market', icon: <ShowChartOutlined /> },
+        ],
+    },
+    {
         text: '基础数据',
         icon: <AssessmentOutlined />,
         subItems: [

@@ -36,6 +36,7 @@ import MonthlyTradeReviewPage from '../pages/MonthlyTradeReviewPage';
 import CustomerProfitAnalysisPage from '../pages/CustomerProfitAnalysisPage';
 import DayAheadSimulationPage from '../pages/DayAheadSimulationPage';
 import RollingMatchQuotesPage from '../pages/RollingMatchQuotesPage';
+import FreqRegulationMarketPage from '../pages/FreqRegulationMarketPage';
 
 export interface RouteConfig {
     path: string;
@@ -94,6 +95,9 @@ export const routeConfigs: RouteConfig[] = [
     { path: '/settlement/monthly-analysis', title: '月度结算详情', component: MonthlySettlementAnalysisPage },
     { path: '/settlement/monthly-customer-detail', title: '单客户月度结算详情', component: SingleCustomerMonthlyDetailPage },
     { path: '/settlement/profit-analysis', title: '客户收益分析', component: CustomerProfitAnalysisPage },
+
+    // 储能运营
+    { path: '/energy-storage/freq-regulation-market', title: '调频市场价格', component: FreqRegulationMarketPage },
 
     // 基础数据
     { path: '/basic-data/grid-price', title: '国网代理购电', component: GridAgencyPricePage },
