@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
     Box,
     Grid,
@@ -10,7 +10,6 @@ import {
     Button,
     useMediaQuery,
     Theme,
-    IconButton,
     useTheme
 } from '@mui/material';
 import { SvgIconProps } from '@mui/material/SvgIcon';
@@ -19,7 +18,7 @@ import PriceCheckIcon from '@mui/icons-material/PriceCheck';
 import ElectricMeterIcon from '@mui/icons-material/ElectricMeter';
 import LanIcon from '@mui/icons-material/Lan';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
-import { DataGrid, GridColDef, GridRenderCellParams, GridPaginationModel } from '@mui/x-data-grid';
+import { DataGrid, GridColDef, GridRenderCellParams, GridPaginationModel, GridRowSelectionModel } from '@mui/x-data-grid';
 import { Snackbar } from '@mui/material';
 import {
     ComposedChart,
@@ -84,7 +83,8 @@ const GridAgencyPricePage: React.FC = () => {
 
     // State for other data
     const [chartData, setChartData] = useState<SGCCPriceData[]>([]);
-    const [latestData, setLatestData] = useState<SGCCPriceData | null>(null);
+    const [selectedData, setSelectedData] = useState<SGCCPriceData | null>(null);
+    const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
     const { seriesVisibility, handleLegendClick } = useSelectableSeries<SeriesKey>({
         purchase_scale_kwh: true,
@@ -117,11 +117,17 @@ const GridAgencyPricePage: React.FC = () => {
             setGridData(pageData);
             setRowCount(total);
 
-            // Chart data and latest data for cards should only be set on the first load
+            // 图表数据只在第一页加载时刷新
             if (paginationModel.page === 0) {
                 setChartData(chartData);
-                setLatestData(pageData[0] || null);
             }
+
+            const nextSelectedData = selectedMonth
+                ? pageData.find((item) => item._id === selectedMonth) || chartData.find((item) => item._id === selectedMonth) || selectedData
+                : pageData[0] || chartData[0] || null;
+
+            setSelectedData(nextSelectedData);
+            setSelectedMonth(nextSelectedData?._id || null);
 
             setError(null);
         } catch (err) {
@@ -215,6 +221,28 @@ const GridAgencyPricePage: React.FC = () => {
             if (fileInputRef.current) {
                 fileInputRef.current.value = ''; // 清除选择，允许重复上传同一文件
             }
+        }
+    };
+
+    const handleSelectData = (data: SGCCPriceData) => {
+        setSelectedData(data);
+        setSelectedMonth(data._id);
+    };
+
+    const rowSelectionModel = useMemo<GridRowSelectionModel>(() => ({
+        type: 'include',
+        ids: new Set(selectedMonth ? [selectedMonth] : []),
+    }), [selectedMonth]);
+
+    const handleRowSelectionModelChange = (model: GridRowSelectionModel) => {
+        const selectedId = Array.from(model.ids)[0];
+        if (selectedId == null) return;
+
+        const selectedRow = gridData.find((row) => row._id === String(selectedId))
+            || chartData.find((row) => row._id === String(selectedId));
+
+        if (selectedRow) {
+            handleSelectData(selectedRow);
         }
     };
 
@@ -430,11 +458,23 @@ const GridAgencyPricePage: React.FC = () => {
                 {isMobile ? (
                     <Box sx={{ mt: 2 }}>
                         {gridData.map((row) => (
-                            <MobileDataCard
+                            <Box
                                 key={row._id}
-                                data={row}
-                                onViewPdf={() => handleViewPdf(row._id)}
-                            />
+                                onClick={() => handleSelectData(row)}
+                                sx={{
+                                    cursor: 'pointer',
+                                    mb: 2,
+                                    border: 2,
+                                    borderColor: selectedMonth === row._id ? 'primary.main' : 'transparent',
+                                    borderRadius: 1,
+                                    '& > .MuiPaper-root': { mb: 0 },
+                                }}
+                            >
+                                <MobileDataCard
+                                    data={row}
+                                    onViewPdf={() => handleViewPdf(row._id)}
+                                />
+                            </Box>
                         ))}
                     </Box>
                 ) : (
@@ -447,6 +487,10 @@ const GridAgencyPricePage: React.FC = () => {
                         loading={loading}
                         paginationModel={paginationModel}
                         onPaginationModelChange={setPaginationModel}
+                        rowSelectionModel={rowSelectionModel}
+                        onRowSelectionModelChange={handleRowSelectionModelChange}
+                        disableMultipleRowSelection
+                        keepNonExistentRowsSelected
                         pageSizeOptions={[10, 20, 50]}
                         autoHeight
                     />
@@ -465,14 +509,14 @@ const GridAgencyPricePage: React.FC = () => {
             return <CircularProgress />;
         }
 
-        if (!latestData) {
+        if (!selectedData) {
             return <Alert severity="info">暂无数据。</Alert>;
         }
 
         return (
             <Grid container spacing={3}>
                 <Grid size={{ xs: 12 }}>
-                    {renderCards(latestData)}
+                    {renderCards(selectedData)}
                 </Grid>
 
                 <Grid size={{ xs: 12 }}>
