@@ -88,7 +88,7 @@ type KpiCardProps = {
 type ChartPanelProps = {
     title: string;
     children: React.ReactNode;
-    height?: number | { xs: number; sm: number };
+    height?: number | { xs: number; sm?: number; md?: number | string };
 };
 
 const daColor = '#1f77b4';
@@ -217,8 +217,17 @@ function ChartPanel({ title, children, height = { xs: 320, sm: 360 } }: ChartPan
     });
 
     return (
-        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, height: '100%' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+        <Paper
+            variant="outlined"
+            sx={{
+                p: { xs: 1.5, sm: 2 },
+                height: { xs: 'auto', md: '100%' },
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
+            }}
+        >
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1, flexShrink: 0 }}>
                 {title}
             </Typography>
             <Box
@@ -654,8 +663,10 @@ function RangeAnalysisTab() {
 }
 
 function MonthlyTrendTab() {
-    const [startMonth, setStartMonth] = useState<Date | null>(startOfYear(new Date()));
-    const [endMonth, setEndMonth] = useState<Date | null>(new Date());
+    const defaultEndMonth = useMemo(() => new Date(), []);
+    const defaultStartMonth = useMemo(() => startOfMonth(subMonths(defaultEndMonth, 11)), [defaultEndMonth]);
+    const [startMonth, setStartMonth] = useState<Date | null>(defaultStartMonth);
+    const [endMonth, setEndMonth] = useState<Date | null>(defaultEndMonth);
     const [data, setData] = useState<FreqMonthlyResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -697,19 +708,50 @@ function MonthlyTrendTab() {
         loadData();
     }, [loadData]);
 
-    const rows = data?.rows || [];
+    const rows = useMemo(() => data?.rows || [], [data]);
+    const intradayPriceStats = useMemo(() => {
+        const validRows = rows.filter((row) => row.intraday_avg_clearing_price !== null);
+        const validDemandRows = rows.filter((row) => row.intraday_avg_demand_mw !== null);
+        if (validRows.length === 0) {
+            return { highestMonth: null, lowestMonth: null, highestPrice: null, lowestPrice: null, avgDemand: null };
+        }
+        const highest = validRows.reduce((best, row) =>
+            (row.intraday_avg_clearing_price ?? -Infinity) > (best.intraday_avg_clearing_price ?? -Infinity) ? row : best
+        );
+        const lowest = validRows.reduce((best, row) =>
+            (row.intraday_avg_clearing_price ?? Infinity) < (best.intraday_avg_clearing_price ?? Infinity) ? row : best
+        );
+        const avgDemand = validDemandRows.length > 0
+            ? validDemandRows.reduce((sum, row) => sum + (row.intraday_avg_demand_mw ?? 0), 0) / validDemandRows.length
+            : null;
+        return {
+            highestMonth: highest.month,
+            lowestMonth: lowest.month,
+            highestPrice: highest.intraday_avg_clearing_price,
+            lowestPrice: lowest.intraday_avg_clearing_price,
+            avgDemand,
+        };
+    }, [rows]);
 
     return (
-        <Box sx={{ position: 'relative' }}>
+        <Box
+            sx={{
+                position: 'relative',
+                flex: { xs: 'none', md: '1 1 0' },
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
+            }}
+        >
             {loading && !data ? (
-                <Box sx={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Box sx={{ flex: { xs: 'none', md: '1 1 0' }, minHeight: { xs: 360, md: 0 }, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <CircularProgress />
                 </Box>
             ) : (
                 <>
                     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
                     <LoadingOverlay visible={loading && !!data} />
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mb: 2 }}>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mb: 2, flexShrink: 0 }}>
                         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flexShrink: 0 }}>
                                 <DatePicker
@@ -745,77 +787,60 @@ function MonthlyTrendTab() {
                             gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
                             gap: { xs: 1.5, sm: 2 },
                             mb: 2,
+                            flexShrink: 0,
                         }}
                     >
-                        <KpiCard label="日前期间均价" value={data?.kpis.day_ahead_period_avg_price} unit="¥/MWh" accent={daColor} icon={<QueryStatsIcon fontSize="inherit" />} />
-                        <KpiCard label="日内期间均价" value={data?.kpis.intraday_period_avg_price} unit="¥/MWh" accent={idColor} icon={<QueryStatsIcon fontSize="inherit" />} />
-                        <KpiCard label="月均日前-日内价差" value={data?.kpis.spread_monthly_avg_price} unit="¥/MWh" accent="#455a64" icon={<InsightsIcon fontSize="inherit" />} />
-                        <KpiCard label="最高价月份" value={data?.kpis.highest_price_month} accent={resourceColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
-                        <KpiCard label="最低价月份" value={data?.kpis.lowest_price_month} accent={demandColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
+                        <KpiCard label="期间均价" value={data?.kpis.intraday_period_avg_price} unit="¥/MWh" accent={idColor} icon={<QueryStatsIcon fontSize="inherit" />} />
+                        <KpiCard label="期间最高价" value={intradayPriceStats.highestPrice} unit="¥/MWh" accent={resourceColor} icon={<InsightsIcon fontSize="inherit" />} />
+                        <KpiCard label="期间最低价" value={intradayPriceStats.lowestPrice} unit="¥/MWh" accent={demandColor} icon={<InsightsIcon fontSize="inherit" />} />
+                        <KpiCard label="平均需求" value={intradayPriceStats.avgDemand} unit="MW" accent="#455a64" icon={<QueryStatsIcon fontSize="inherit" />} />
+                        <KpiCard label="最高价月份" value={intradayPriceStats.highestMonth} accent={resourceColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
+                        <KpiCard label="最低价月份" value={intradayPriceStats.lowestMonth} accent={demandColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
                     </Box>
 
                     {rows.length === 0 ? (
-                        <EmptyState text="当前月份范围暂无调频市场数据" />
+                        <Box sx={{ flex: { xs: 'none', md: '1 1 0' }, minHeight: 0 }}>
+                            <EmptyState text="当前月份范围暂无调频市场数据" />
+                        </Box>
                     ) : (
-                        <Stack spacing={2}>
-                            <ChartPanel title="月均出清价格组合图" height={{ xs: 360, sm: 420 }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={rows} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="month" />
-                                        <YAxis yAxisId="price" />
-                                        <YAxis yAxisId="spread" orientation="right" />
-                                        <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
-                                        <Legend />
-                                        <Bar yAxisId="price" name="日前均价" dataKey="day_ahead_avg_clearing_price" fill={daColor} maxBarSize={36} />
-                                        <Bar yAxisId="price" name="日内均价" dataKey="intraday_avg_clearing_price" fill={idColor} maxBarSize={36} />
-                                        <Line yAxisId="spread" name="价差" type="monotone" dataKey="spread_avg_clearing_price" stroke="#455a64" strokeWidth={2} dot={false} connectNulls />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
-                            </ChartPanel>
+                        <Stack spacing={2} sx={{ flex: { xs: 'none', md: '1 1 0' }, minHeight: 0, overflow: { xs: 'visible', md: 'hidden' } }}>
+                            <Box sx={{ flex: { xs: 'none', md: '1 1 0' }, minHeight: { xs: 360, md: 0 } }}>
+                                <ChartPanel title="月均出清价格组合图" height={{ xs: 360, sm: 420, md: '100%' }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <ComposedChart data={rows} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="month" />
+                                            <YAxis yAxisId="price" />
+                                            <YAxis yAxisId="demand" orientation="right" />
+                                            <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
+                                            <Legend />
+                                            <Bar yAxisId="price" name="日内均价" dataKey="intraday_avg_clearing_price" fill={idColor} maxBarSize={36} />
+                                            <Line yAxisId="demand" name="日内需求容量" type="monotone" dataKey="intraday_avg_demand_mw" stroke={demandColor} strokeWidth={2} dot={false} connectNulls />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </ChartPanel>
+                            </Box>
 
-                            <Grid container spacing={{ xs: 1.5, sm: 2 }}>
-                                <Grid size={{ xs: 12, md: 6 }}>
-                                    <ChartPanel title="月均需求容量">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={rows} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
-                                                <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis dataKey="month" />
-                                                <YAxis />
-                                                <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
-                                                <Legend />
-                                                <Bar name="日前需求" dataKey="day_ahead_avg_demand_mw" fill={daColor} maxBarSize={32} />
-                                                <Bar name="日内需求" dataKey="intraday_avg_demand_mw" fill={idColor} maxBarSize={32} />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </ChartPanel>
-                                </Grid>
-                                <Grid size={{ xs: 12, md: 6 }}>
-                                    <ChartPanel title="月均平均报价">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={rows} margin={{ top: 12, right: 20, bottom: 8, left: 0 }}>
-                                                <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis dataKey="month" />
-                                                <YAxis />
-                                                <Tooltip formatter={(value: any) => formatTooltipValue(value)} />
-                                                <Legend />
-                                                <Bar name="日前报价" dataKey="day_ahead_avg_bid_price" fill={daColor} maxBarSize={32} />
-                                                <Bar name="日内报价" dataKey="intraday_avg_bid_price" fill={idColor} maxBarSize={32} />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </ChartPanel>
-                                </Grid>
-                            </Grid>
-
-                            <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
+                            <Paper
+                                variant="outlined"
+                                sx={{
+                                    p: { xs: 1.5, sm: 2 },
+                                    flex: { xs: 'none', md: '0 0 240px' },
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    minHeight: { xs: 'auto', md: 0 },
+                                    overflow: { xs: 'visible', md: 'hidden' },
+                                }}
+                            >
                                 <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
                                     月度汇总表
                                 </Typography>
-                                <TableContainer sx={{ overflowX: 'auto' }}>
+                                <TableContainer sx={{ overflowX: 'auto', overflowY: { xs: 'visible', md: 'auto' }, flex: { xs: 'none', md: '1 1 0' }, minHeight: 0 }}>
                                     <Table
+                                        stickyHeader
                                         size="small"
                                         sx={{
-                                            minWidth: 900,
+                                            minWidth: 520,
                                             '& .MuiTableCell-root': {
                                                 fontSize: { xs: '0.75rem', sm: '0.875rem' },
                                                 px: { xs: 0.75, sm: 1.5 },
@@ -825,12 +850,8 @@ function MonthlyTrendTab() {
                                         <TableHead>
                                             <TableRow>
                                                 <TableCell>月份</TableCell>
-                                                <TableCell align="right">日前均价</TableCell>
                                                 <TableCell align="right">日内均价</TableCell>
-                                                <TableCell align="right">价差</TableCell>
-                                                <TableCell align="right">日前需求</TableCell>
                                                 <TableCell align="right">日内需求</TableCell>
-                                                <TableCell align="right">日前报价</TableCell>
                                                 <TableCell align="right">日内报价</TableCell>
                                             </TableRow>
                                         </TableHead>
@@ -838,12 +859,8 @@ function MonthlyTrendTab() {
                                             {rows.map((row) => (
                                                 <TableRow key={row.month} hover>
                                                     <TableCell>{row.month}</TableCell>
-                                                    <TableCell align="right">{formatNumber(row.day_ahead_avg_clearing_price)}</TableCell>
                                                     <TableCell align="right">{formatNumber(row.intraday_avg_clearing_price)}</TableCell>
-                                                    <TableCell align="right">{formatNumber(row.spread_avg_clearing_price)}</TableCell>
-                                                    <TableCell align="right">{formatNumber(row.day_ahead_avg_demand_mw)}</TableCell>
                                                     <TableCell align="right">{formatNumber(row.intraday_avg_demand_mw)}</TableCell>
-                                                    <TableCell align="right">{formatNumber(row.day_ahead_avg_bid_price)}</TableCell>
                                                     <TableCell align="right">{formatNumber(row.intraday_avg_bid_price)}</TableCell>
                                                 </TableRow>
                                             ))}
