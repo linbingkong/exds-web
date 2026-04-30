@@ -5,8 +5,12 @@ import {
     Button,
     ButtonGroup,
     CircularProgress,
+    FormControl,
     IconButton,
+    InputLabel,
+    MenuItem,
     Paper,
+    Select,
     Stack,
     Tab,
     Table,
@@ -44,7 +48,9 @@ import {
 import {
     Area,
     Bar,
+    BarChart,
     CartesianGrid,
+    Cell,
     ComposedChart,
     Legend,
     Line,
@@ -55,6 +61,9 @@ import {
     YAxis,
 } from 'recharts';
 import {
+    FreqCompFeeRecord,
+    FreqCompMonthlySummaryItem,
+    FreqCompPlantTrendResponse,
     FreqDailyResponse,
     FreqMonthlyResponse,
     FreqRangeResponse,
@@ -89,8 +98,18 @@ const resourceColor = '#ff7f0e';
 
 function TabPanel({ children, value, index }: TabPanelProps) {
     return (
-        <Box role="tabpanel" hidden={value !== index}>
-            {value === index && <Box sx={{ pt: 2 }}>{children}</Box>}
+        <Box
+            role="tabpanel"
+            sx={{
+                display: value === index ? 'flex' : 'none',
+                flexDirection: 'column',
+                flex: { xs: 'none', md: '1 1 0' },
+                minHeight: 0,
+                overflowY: 'auto',
+                pt: 2,
+            }}
+        >
+            {value === index && children}
         </Box>
     );
 }
@@ -840,6 +859,433 @@ function MonthlyTrendTab() {
     );
 }
 
+const compColor = '#2ca02c';
+
+function formatMonthLabel(month: string): string {
+    return `${month.slice(0, 4)}-${month.slice(4, 6)}`;
+}
+
+function CompensationAnalysisTab() {
+    const [summaryData, setSummaryData] = useState<FreqCompMonthlySummaryItem[]>([]);
+    const [selectedMonth, setSelectedMonth] = useState<string>('');
+    const [monthRecords, setMonthRecords] = useState<FreqCompFeeRecord[]>([]);
+    const [selectedPlant, setSelectedPlant] = useState<string>('');
+    const [plantTrend, setPlantTrend] = useState<FreqCompPlantTrendResponse | null>(null);
+    const [loadingSummary, setLoadingSummary] = useState(true);
+    const [loadingMonth, setLoadingMonth] = useState(false);
+    const [loadingPlant, setLoadingPlant] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        setLoadingSummary(true);
+        freqRegulationApi
+            .fetchFreqCompMonthlySummary()
+            .then((res) => {
+                const months = res.data.months;
+                setSummaryData(months);
+                if (months.length > 0) {
+                    setSelectedMonth(months[months.length - 1].month);
+                }
+            })
+            .catch((err) => setError(err.response?.data?.detail || '获取月度汇总数据失败'))
+            .finally(() => setLoadingSummary(false));
+    }, []);
+
+    useEffect(() => {
+        if (!selectedMonth) return;
+        setLoadingMonth(true);
+        freqRegulationApi
+            .fetchFreqCompFeeMonth(selectedMonth)
+            .then((res) => {
+                const filtered = res.data.records
+                    .filter((r) => r.compensation_fee > 0)
+                    .sort((a, b) => b.compensation_fee - a.compensation_fee);
+                setMonthRecords(filtered);
+                if (filtered.length > 0) {
+                    setSelectedPlant(filtered[0].plant_name);
+                } else {
+                    setSelectedPlant('');
+                    setPlantTrend(null);
+                }
+            })
+            .catch((err) => setError(err.response?.data?.detail || '获取月度电厂数据失败'))
+            .finally(() => setLoadingMonth(false));
+    }, [selectedMonth]);
+
+    useEffect(() => {
+        if (!selectedPlant) return;
+        setLoadingPlant(true);
+        freqRegulationApi
+            .fetchFreqCompPlantTrend({ plant_name: selectedPlant, months: 12 })
+            .then((res) => setPlantTrend(res.data))
+            .catch((err) => setError(err.response?.data?.detail || '获取电厂趋势数据失败'))
+            .finally(() => setLoadingPlant(false));
+    }, [selectedPlant]);
+
+    const currentMonthSummary = summaryData.find((m) => m.month === selectedMonth);
+    const monthsDesc = [...summaryData].reverse();
+    const totalFee = summaryData.reduce((sum, m) => sum + m.total_compensation_fee, 0);
+    const avgFee = summaryData.length > 0 ? totalFee / summaryData.length : 0;
+
+    const renderPlantTick = useCallback(
+        (props: any) => {
+            const { x, y, payload } = props;
+            const isSelected = payload.value === selectedPlant;
+            const raw: string = payload.value ?? '';
+            const label = raw.length > 8 ? raw.slice(0, 8) + '…' : raw;
+            return (
+                <text
+                    x={x}
+                    y={y}
+                    textAnchor="end"
+                    dominantBaseline="middle"
+                    fontSize={12}
+                    fill={isSelected ? '#d62728' : '#555'}
+                    style={{ cursor: 'pointer', userSelect: 'none' } as React.CSSProperties}
+                    onClick={() => setSelectedPlant(payload.value)}
+                >
+                    {label}
+                </text>
+            );
+        },
+        [selectedPlant]
+    );
+
+    if (loadingSummary) {
+        return (
+            <Box sx={{ flex: '1 1 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
+
+    return (
+        <Box
+            sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                flex: '1 1 0',
+                minHeight: 0,
+                gap: { xs: 1.5, sm: 2 },
+            }}
+        >
+            {error && (
+                <Alert severity="error" onClose={() => setError(null)} sx={{ flexShrink: 0 }}>
+                    {error}
+                </Alert>
+            )}
+
+            {/* 区域1：全市场月度趋势 */}
+            <Paper
+                variant="outlined"
+                sx={{
+                    p: { xs: 1.5, sm: 2 },
+                    height: { xs: 240, sm: 260 },
+                    flexShrink: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    '& .recharts-surface:focus': { outline: 'none' },
+                    '& *:focus': { outline: 'none !important' },
+                }}
+            >
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1, flexShrink: 0 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        全市场月度补偿费用趋势（点击柱体切换月份）
+                    </Typography>
+                    <Stack direction="row" spacing={{ xs: 1.5, sm: 2.5 }} sx={{ flexShrink: 0, ml: 1.5 }}>
+                        <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="caption" color="text.secondary" display="block">累计补偿</Typography>
+                            <Typography variant="body2" fontWeight="bold" sx={{ color: compColor }}>
+                                {formatNumber(totalFee)} 万元
+                            </Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="caption" color="text.secondary" display="block">月均</Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                                {formatNumber(avgFee)} 万元
+                            </Typography>
+                        </Box>
+                    </Stack>
+                </Stack>
+                <Box sx={{ flex: '1 1 0', minHeight: 0 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={summaryData} margin={{ top: 8, right: 48, bottom: 4, left: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="month" tickFormatter={formatMonthLabel} />
+                            <YAxis yAxisId="fee" tickFormatter={(v) => `${v}`} />
+                            <YAxis yAxisId="count" orientation="right" allowDecimals={false} />
+                            <Tooltip
+                                formatter={(value: any, name: string) => [formatTooltipValue(value), name]}
+                                labelFormatter={formatMonthLabel}
+                            />
+                            <Legend />
+                            <Bar
+                                yAxisId="fee"
+                                dataKey="total_compensation_fee"
+                                name="总补偿费用（万元）"
+                                maxBarSize={40}
+                                cursor="pointer"
+                                onClick={(data: any) => data?.month && setSelectedMonth(data.month)}
+                            >
+                                {summaryData.map((entry) => (
+                                    <Cell
+                                        key={entry.month}
+                                        fill={entry.month === selectedMonth ? '#d62728' : compColor}
+                                    />
+                                ))}
+                            </Bar>
+                            <Line
+                                yAxisId="count"
+                                type="monotone"
+                                dataKey="winning_plant_count"
+                                name="获益电厂数（家）"
+                                stroke={daColor}
+                                strokeWidth={2}
+                                dot={{ r: 4 }}
+                                connectNulls
+                            />
+                        </ComposedChart>
+                    </ResponsiveContainer>
+                </Box>
+            </Paper>
+
+            {/* 区域2：左右分栏 */}
+            <Box
+                sx={{
+                    flex: '1 1 0',
+                    minHeight: 0,
+                    display: 'flex',
+                    flexDirection: { xs: 'column', md: 'row' },
+                    gap: { xs: 1.5, sm: 2 },
+                }}
+            >
+                {/* 区域2a：单月电厂分布 */}
+                <Box
+                    sx={{
+                        flex: { xs: 'none', md: '0 0 42%' },
+                        display: 'flex',
+                        flexDirection: 'column',
+                    }}
+                >
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: { xs: 1.5, sm: 2 },
+                            flex: { xs: 'none', md: 1 },
+                            display: 'flex',
+                            flexDirection: 'column',
+                            minHeight: { xs: 260, md: 0 },
+                            '& *:focus': { outline: 'none !important' },
+                        }}
+                    >
+                        <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.5, flexShrink: 0 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, flexShrink: 0 }}>
+                                电厂补偿分布
+                            </Typography>
+                            <FormControl size="small" sx={{ minWidth: 110 }}>
+                                <InputLabel>月份</InputLabel>
+                                <Select
+                                    label="月份"
+                                    value={selectedMonth}
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    disabled={loadingMonth}
+                                >
+                                    {monthsDesc.map((m) => (
+                                        <MenuItem key={m.month} value={m.month}>
+                                            {formatMonthLabel(m.month)}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Stack>
+                        <Box sx={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
+                            {loadingMonth ? (
+                                <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <CircularProgress size={24} />
+                                </Box>
+                            ) : monthRecords.length === 0 ? (
+                                <EmptyState text="当月暂无获益电厂数据" />
+                            ) : (
+                                <Box sx={{ height: Math.max(200, monthRecords.length * 26 + 40) }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart
+                                            layout="vertical"
+                                            data={monthRecords}
+                                            margin={{ top: 4, right: 16, bottom: 4, left: 4 }}
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                            <XAxis type="number" tick={{ fontSize: 12 }} />
+                                            <YAxis
+                                                type="category"
+                                                dataKey="plant_name"
+                                                width={130}
+                                                tick={renderPlantTick}
+                                            />
+                                            <Tooltip
+                                                formatter={(value: any) => [
+                                                    `${formatTooltipValue(value)} 万元`,
+                                                    '补偿费用',
+                                                ]}
+                                            />
+                                            <Bar
+                                                dataKey="compensation_fee"
+                                                name="补偿费用（万元）"
+                                                maxBarSize={18}
+                                                cursor="pointer"
+                                                onClick={(data: any) =>
+                                                    data?.plant_name && setSelectedPlant(data.plant_name)
+                                                }
+                                            >
+                                                {monthRecords.map((entry) => (
+                                                    <Cell
+                                                        key={entry.plant_name}
+                                                        fill={
+                                                            entry.plant_name === selectedPlant
+                                                                ? '#d62728'
+                                                                : compColor
+                                                        }
+                                                    />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </Box>
+                            )}
+                        </Box>
+                    </Paper>
+                </Box>
+
+                {/* 区域2b：电厂近12月趋势 */}
+                <Box
+                    sx={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                    }}
+                >
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: { xs: 1.5, sm: 2 },
+                            flex: { xs: 'none', md: 1 },
+                            display: 'flex',
+                            flexDirection: 'column',
+                            minHeight: { xs: 320, md: 0 },
+                            '& .recharts-surface:focus': { outline: 'none' },
+                            '& *:focus': { outline: 'none !important' },
+                        }}
+                    >
+                        {!selectedPlant ? (
+                            <EmptyState text="请从左侧选择电厂" />
+                        ) : (
+                            <>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.5, flexShrink: 0 }}>
+                                    {selectedPlant} · 近12月补偿趋势
+                                </Typography>
+                                <Box
+                                    sx={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                                        gap: { xs: 1, sm: 1.5 },
+                                        mb: { xs: 1.5, sm: 2 },
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    <KpiCard
+                                        label="当月市场总补偿"
+                                        value={currentMonthSummary?.total_compensation_fee ?? null}
+                                        unit="万元"
+                                        accent={compColor}
+                                    />
+                                    <KpiCard
+                                        label="当月获益电厂数"
+                                        value={currentMonthSummary?.winning_plant_count ?? null}
+                                        unit="家"
+                                        accent={daColor}
+                                    />
+                                    <KpiCard
+                                        label="近12月总补偿收益"
+                                        value={plantTrend?.stats.total_compensation_fee ?? null}
+                                        unit="万元"
+                                        accent="#d62728"
+                                    />
+                                    <KpiCard
+                                        label="近12月获益月数"
+                                        value={
+                                            plantTrend
+                                                ? `${plantTrend.stats.winning_months}/${plantTrend.stats.total_months}`
+                                                : null
+                                        }
+                                        accent={resourceColor}
+                                    />
+                                </Box>
+                                {loadingPlant ? (
+                                    <Box sx={{ flex: '1 1 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <CircularProgress size={24} />
+                                    </Box>
+                                ) : !plantTrend ? (
+                                    <Box sx={{ flex: '1 1 0' }}><EmptyState /></Box>
+                                ) : (
+                                    <Box
+                                        sx={{
+                                            flex: '1 1 0',
+                                            minHeight: { xs: 200, md: 0 },
+                                        }}
+                                    >
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart
+                                                data={plantTrend.trend}
+                                                margin={{ top: 8, right: 20, bottom: 8, left: 0 }}
+                                            >
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis dataKey="month" tickFormatter={formatMonthLabel} />
+                                                <YAxis />
+                                                <Tooltip
+                                                    formatter={(value: any) => [
+                                                        `${formatTooltipValue(value)} 万元`,
+                                                        '补偿费用',
+                                                    ]}
+                                                    labelFormatter={formatMonthLabel}
+                                                />
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="compensation_fee"
+                                                    name="补偿费用（万元）"
+                                                    stroke="#d62728"
+                                                    strokeWidth={2}
+                                                    connectNulls
+                                                    dot={(props: any) => {
+                                                        const { cx, cy, payload } = props;
+                                                        return (
+                                                            <circle
+                                                                key={payload.month}
+                                                                cx={cx}
+                                                                cy={cy}
+                                                                r={5}
+                                                                fill={
+                                                                    payload.compensation_fee > 0
+                                                                        ? '#d62728'
+                                                                        : '#bbb'
+                                                                }
+                                                                stroke="#fff"
+                                                                strokeWidth={1.5}
+                                                            />
+                                                        );
+                                                    }}
+                                                />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </Box>
+                                )}
+                            </>
+                        )}
+                    </Paper>
+                </Box>
+            </Box>
+        </Box>
+    );
+}
+
 const FreqRegulationMarketPage: React.FC = () => {
     const [tabIndex, setTabIndex] = useState(0);
     const theme = useTheme();
@@ -849,18 +1295,19 @@ const FreqRegulationMarketPage: React.FC = () => {
         <Box
             sx={{
                 width: '100%',
-                px: { xs: 1.5, sm: 2 },
-                pt: { xs: 1.5, sm: 2 },
-                pb: { xs: 1.5, sm: 2 },
+                height: { xs: 'auto', md: '100%' },
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
             }}
         >
             {isTablet && (
-                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 'bold', color: 'text.primary' }}>
+                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 'bold', color: 'text.primary', flexShrink: 0 }}>
                     储能运营 / 调频市场价格
                 </Typography>
             )}
 
-            <Paper variant="outlined" sx={{ borderColor: 'divider' }}>
+            <Paper variant="outlined" sx={{ borderColor: 'divider', flexShrink: 0 }}>
                 <Tabs
                     value={tabIndex}
                     onChange={(_, value) => setTabIndex(value)}
@@ -871,6 +1318,7 @@ const FreqRegulationMarketPage: React.FC = () => {
                     <Tab label="日曲线" />
                     <Tab label="区间分析" />
                     <Tab label="月度趋势" />
+                    <Tab label="补偿收益分析" />
                 </Tabs>
             </Paper>
 
@@ -882,6 +1330,9 @@ const FreqRegulationMarketPage: React.FC = () => {
             </TabPanel>
             <TabPanel value={tabIndex} index={2}>
                 <MonthlyTrendTab />
+            </TabPanel>
+            <TabPanel value={tabIndex} index={3}>
+                <CompensationAnalysisTab />
             </TabPanel>
         </Box>
     );

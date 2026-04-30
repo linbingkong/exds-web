@@ -158,6 +158,72 @@ def list_freq_comp_fee_months(_: Any = Depends(require_permission(VIEW_PERMISSIO
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
+@router.get("/monthly-summary", summary="获取全市场月度补偿费用汇总（仅获益电厂）")
+def get_monthly_summary(_: Any = Depends(require_permission(VIEW_PERMISSION))) -> Dict[str, Any]:
+    try:
+        pipeline = [
+            {"$match": {"compensation_fee": {"$gt": 0}}},
+            {
+                "$group": {
+                    "_id": "$month",
+                    "month": {"$first": "$month"},
+                    "total_compensation_fee": {"$sum": "$compensation_fee"},
+                    "winning_plant_count": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id": 1}},
+            {"$project": {"_id": 0, "month": 1, "total_compensation_fee": 1, "winning_plant_count": 1}},
+        ]
+        months = list(COLLECTION.aggregate(pipeline))
+        return {"months": months}
+    except Exception as exc:
+        logger.error("get_monthly_summary error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.get("/plant-trend", summary="获取指定电厂近N个月补偿费用趋势")
+def get_plant_trend(
+    plant_name: str,
+    months: int = 12,
+    _: Any = Depends(require_permission(VIEW_PERMISSION)),
+) -> Dict[str, Any]:
+    try:
+        all_months_docs = list(
+            COLLECTION.aggregate([{"$group": {"_id": "$month"}}, {"$sort": {"_id": -1}}])
+        )
+        all_months_desc = [doc["_id"] for doc in all_months_docs]
+        selected_months = list(reversed(all_months_desc[:months]))
+
+        records = list(
+            COLLECTION.find(
+                {"plant_name": plant_name, "month": {"$in": selected_months}},
+                {"_id": 0, "month": 1, "compensation_fee": 1},
+            )
+        )
+        records_by_month = {r["month"]: r["compensation_fee"] for r in records}
+
+        trend = [
+            {"month": m, "compensation_fee": records_by_month.get(m, 0.0)}
+            for m in selected_months
+        ]
+
+        positive = [t for t in trend if t["compensation_fee"] > 0]
+        total = sum(t["compensation_fee"] for t in positive)
+
+        return {
+            "plant_name": plant_name,
+            "trend": trend,
+            "stats": {
+                "total_compensation_fee": round(total, 4),
+                "winning_months": len(positive),
+                "total_months": len(selected_months),
+            },
+        }
+    except Exception as exc:
+        logger.error("get_plant_trend error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
 @router.get("/{month}", summary="获取指定年月调频补偿费用")
 def get_freq_comp_fee(month: str, _: Any = Depends(require_permission(VIEW_PERMISSION))) -> Dict[str, Any]:
     if not re.fullmatch(r"\d{6}", month):

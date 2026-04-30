@@ -37,7 +37,7 @@ import { changeMyPassword, updateMyProfile } from '../api/authManagement';
 const drawerWidth = 260;
 const sidebarStorageKey = 'exds:desktop-sidebar-collapsed';
 const FULL_BLEED_TAB_PATHS = ['/dashboard', '/trading-strategy/day-ahead'];
-const FULL_HEIGHT_TAB_PATHS = ['/price-analysis/mid-long-trend', '/price-forecast/day-ahead', '/system-settings/user-permissions', '/strategy/rolling-match-quotes'];
+const FULL_HEIGHT_TAB_PATHS = ['/price-analysis/mid-long-trend', '/price-forecast/day-ahead', '/system-settings/user-permissions', '/strategy/rolling-match-quotes', '/energy-storage/freq-regulation-market'];
 
 export const DesktopTabLayout: React.FC = () => {
     const [mobileOpen, setMobileOpen] = useState(false);

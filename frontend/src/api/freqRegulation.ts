@@ -77,6 +77,46 @@ export interface FreqMonthlyResponse {
     };
 }
 
+export interface FreqCompMonthlySummaryItem {
+    month: string;
+    total_compensation_fee: number;
+    winning_plant_count: number;
+}
+
+export interface FreqCompMonthlySummaryResponse {
+    months: FreqCompMonthlySummaryItem[];
+}
+
+export interface FreqCompFeeRecord {
+    month: string;
+    plant_name: string;
+    order: number;
+    on_grid_energy: number;
+    compensation_fee: number;
+    allocation_fee: number;
+    settlement_fee: number;
+}
+
+export interface FreqCompFeeMonthResponse {
+    month: string;
+    records: FreqCompFeeRecord[];
+}
+
+export interface FreqCompPlantTrendPoint {
+    month: string;
+    compensation_fee: number;
+}
+
+export interface FreqCompPlantTrendResponse {
+    plant_name: string;
+    trend: FreqCompPlantTrendPoint[];
+    stats: {
+        total_compensation_fee: number;
+        winning_months: number;
+        total_months: number;
+    };
+}
+
 export const freqRegulationApi = {
     fetchDaily: (date: string) => {
         return apiClient.get<FreqDailyResponse>('/api/v1/freq-regulation/daily', { params: { date } });
@@ -86,5 +126,14 @@ export const freqRegulationApi = {
     },
     fetchMonthly: (params: { start_month: string; end_month: string }) => {
         return apiClient.get<FreqMonthlyResponse>('/api/v1/freq-regulation/monthly', { params });
+    },
+    fetchFreqCompMonthlySummary: () => {
+        return apiClient.get<FreqCompMonthlySummaryResponse>('/api/v1/freq-comp-fee/monthly-summary');
+    },
+    fetchFreqCompFeeMonth: (month: string) => {
+        return apiClient.get<FreqCompFeeMonthResponse>(`/api/v1/freq-comp-fee/${month}`);
+    },
+    fetchFreqCompPlantTrend: (params: { plant_name: string; months?: number }) => {
+        return apiClient.get<FreqCompPlantTrendResponse>('/api/v1/freq-comp-fee/plant-trend', { params });
     },
 };
