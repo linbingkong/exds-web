@@ -17,6 +17,7 @@ import {
     TableRow,
     Tabs,
     Typography,
+    alpha,
     useMediaQuery,
     useTheme,
 } from '@mui/material';
@@ -72,6 +73,7 @@ type KpiCardProps = {
     value: number | string | null | undefined;
     unit?: string;
     accent?: string;
+    icon?: React.ReactNode;
 };
 
 type ChartPanelProps = {
@@ -113,31 +115,57 @@ function formatTooltipValue(value: any): string {
     return String(value);
 }
 
-function KpiCard({ label, value, unit, accent = daColor }: KpiCardProps) {
+function KpiCard({ label, value, unit, accent = daColor, icon }: KpiCardProps) {
     return (
         <Paper
             variant="outlined"
-            sx={{
+            sx={(theme) => ({
                 p: { xs: 1.5, sm: 2 },
-                minHeight: 92,
-                borderLeft: `4px solid ${accent}`,
+                minHeight: 96,
+                height: '100%',
                 display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-            }}
+                alignItems: 'center',
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: alpha(accent, 0.2),
+                background: `linear-gradient(135deg, ${alpha(accent, 0.03)} 0%, ${alpha(accent, 0.07)} 100%)`,
+                boxShadow: 'none',
+                overflow: 'hidden',
+                minWidth: 0,
+                '& .freq-kpi-icon': {
+                    color: accent,
+                },
+                '& .freq-kpi-value': {
+                    color: theme.palette.text.primary,
+                },
+            })}
         >
-            <Typography variant="body2" color="text.secondary">
-                {label}
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 1 }}>
-                <Typography variant="h5" sx={{ fontWeight: 700, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-                    {formatNumber(value)}
+            {icon && (
+                <Box className="freq-kpi-icon" sx={{ fontSize: { xs: 30, sm: 38 }, mr: { xs: 1, sm: 1.5 }, display: 'flex', alignItems: 'center' }}>
+                    {icon}
+                </Box>
+            )}
+            <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" color="text.secondary" noWrap>
+                    {label}
                 </Typography>
-                {unit && (
-                    <Typography variant="body2" color="text.secondary">
-                        {unit}
+                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, minWidth: 0 }}>
+                    <Typography
+                        className="freq-kpi-value"
+                        variant="h6"
+                        component="div"
+                        fontWeight="bold"
+                        noWrap
+                        sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}
+                    >
+                        {formatNumber(value)}
                     </Typography>
-                )}
+                    {unit && (
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                            {unit}
+                        </Typography>
+                    )}
+                </Box>
             </Box>
         </Paper>
     );
@@ -276,11 +304,11 @@ function DailyCurveTab() {
                             mb: 2,
                         }}
                     >
-                        <KpiCard label="日前均出清价格" value={data?.kpis.day_ahead_avg_clearing_price} unit="¥/MWh" accent={daColor} />
-                        <KpiCard label="日内均出清价格" value={data?.kpis.intraday_avg_clearing_price} unit="¥/MWh" accent={idColor} />
-                        <KpiCard label="日前-日内价差" value={data?.kpis.spread_avg_clearing_price} unit="¥/MWh" accent="#455a64" />
-                        <KpiCard label="日前均需求" value={data?.kpis.day_ahead_avg_demand_mw} unit="MW" accent={demandColor} />
-                        <KpiCard label="日内均需求" value={data?.kpis.intraday_avg_demand_mw} unit="MW" accent={resourceColor} />
+                        <KpiCard label="日前均出清价格" value={data?.kpis.day_ahead_avg_clearing_price} unit="¥/MWh" accent={daColor} icon={<QueryStatsIcon fontSize="inherit" />} />
+                        <KpiCard label="日内均出清价格" value={data?.kpis.intraday_avg_clearing_price} unit="¥/MWh" accent={idColor} icon={<QueryStatsIcon fontSize="inherit" />} />
+                        <KpiCard label="日前-日内价差" value={data?.kpis.spread_avg_clearing_price} unit="¥/MWh" accent="#455a64" icon={<InsightsIcon fontSize="inherit" />} />
+                        <KpiCard label="日前均需求" value={data?.kpis.day_ahead_avg_demand_mw} unit="MW" accent={demandColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
+                        <KpiCard label="日内均需求" value={data?.kpis.intraday_avg_demand_mw} unit="MW" accent={resourceColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
                     </Box>
 
                     {!hasData ? (
@@ -479,32 +507,32 @@ function RangeAnalysisTab() {
                 <>
                     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
                     <LoadingOverlay visible={loading && hasLoadedData} />
-                    <Stack spacing={1.5} sx={{ mb: 2 }}>
-                        <ButtonGroup variant="outlined" size="small" sx={{ flexWrap: 'wrap' }}>
-                            <Button disabled={loading} onClick={() => applyDatePreset('thisMonth')}>本月</Button>
-                            <Button disabled={loading} onClick={() => applyDatePreset('lastMonth')}>上月</Button>
-                            <Button disabled={loading} onClick={() => applyDatePreset('last30')}>近30天</Button>
-                            <Button disabled={loading} onClick={() => applyDatePreset('last60')}>近60天</Button>
-                            <Button disabled={loading} onClick={() => applyDatePreset('last90')}>近90天</Button>
-                        </ButtonGroup>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mb: 2 }}>
                         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flexShrink: 0 }}>
                                 <DatePicker
                                     label="开始日期"
                                     value={startDate}
                                     onChange={(value) => setStartDate(value)}
                                     disabled={loading}
-                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true, sx: { minWidth: { sm: 160 } } } }}
                                 />
                                 <DatePicker
                                     label="结束日期"
                                     value={endDate}
                                     onChange={(value) => setEndDate(value)}
                                     disabled={loading}
-                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true, sx: { minWidth: { sm: 160 } } } }}
                                 />
                             </Stack>
                         </LocalizationProvider>
+                        <ButtonGroup variant="outlined" size="small" sx={{ flexWrap: 'wrap', alignSelf: { xs: 'stretch', md: 'center' } }}>
+                            <Button disabled={loading} onClick={() => applyDatePreset('thisMonth')}>本月</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('lastMonth')}>上月</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('last30')}>近30天</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('last60')}>近60天</Button>
+                            <Button disabled={loading} onClick={() => applyDatePreset('last90')}>近90天</Button>
+                        </ButtonGroup>
                     </Stack>
 
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
@@ -662,23 +690,16 @@ function MonthlyTrendTab() {
                 <>
                     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
                     <LoadingOverlay visible={loading && !!data} />
-                    <Stack spacing={1.5} sx={{ mb: 2 }}>
-                        <ButtonGroup variant="outlined" size="small" sx={{ flexWrap: 'wrap' }}>
-                            <Button disabled={loading} onClick={() => applyMonthPreset('thisYear')}>今年</Button>
-                            <Button disabled={loading} onClick={() => applyMonthPreset('lastYear')}>去年</Button>
-                            <Button disabled={loading} onClick={() => applyMonthPreset('last12')}>近12个月</Button>
-                            <Button disabled={loading} onClick={() => applyMonthPreset('last24')}>近24个月</Button>
-                            <Button disabled={loading} onClick={() => applyMonthPreset('last36')}>近36个月</Button>
-                        </ButtonGroup>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mb: 2 }}>
                         <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flexShrink: 0 }}>
                                 <DatePicker
                                     label="开始月份"
                                     views={['year', 'month']}
                                     value={startMonth}
                                     onChange={(value) => setStartMonth(value)}
                                     disabled={loading}
-                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true, sx: { minWidth: { sm: 160 } } } }}
                                 />
                                 <DatePicker
                                     label="结束月份"
@@ -686,10 +707,17 @@ function MonthlyTrendTab() {
                                     value={endMonth}
                                     onChange={(value) => setEndMonth(value)}
                                     disabled={loading}
-                                    slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                                    slotProps={{ textField: { size: 'small', fullWidth: true, sx: { minWidth: { sm: 160 } } } }}
                                 />
                             </Stack>
                         </LocalizationProvider>
+                        <ButtonGroup variant="outlined" size="small" sx={{ flexWrap: 'wrap', alignSelf: { xs: 'stretch', md: 'center' } }}>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('thisYear')}>今年</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('lastYear')}>去年</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('last12')}>近12个月</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('last24')}>近24个月</Button>
+                            <Button disabled={loading} onClick={() => applyMonthPreset('last36')}>近36个月</Button>
+                        </ButtonGroup>
                     </Stack>
 
                     <Box
@@ -700,11 +728,11 @@ function MonthlyTrendTab() {
                             mb: 2,
                         }}
                     >
-                        <KpiCard label="日前期间均价" value={data?.kpis.day_ahead_period_avg_price} unit="¥/MWh" accent={daColor} />
-                        <KpiCard label="日内期间均价" value={data?.kpis.intraday_period_avg_price} unit="¥/MWh" accent={idColor} />
-                        <KpiCard label="月均日前-日内价差" value={data?.kpis.spread_monthly_avg_price} unit="¥/MWh" accent="#455a64" />
-                        <KpiCard label="最高价月份" value={data?.kpis.highest_price_month} accent={resourceColor} />
-                        <KpiCard label="最低价月份" value={data?.kpis.lowest_price_month} accent={demandColor} />
+                        <KpiCard label="日前期间均价" value={data?.kpis.day_ahead_period_avg_price} unit="¥/MWh" accent={daColor} icon={<QueryStatsIcon fontSize="inherit" />} />
+                        <KpiCard label="日内期间均价" value={data?.kpis.intraday_period_avg_price} unit="¥/MWh" accent={idColor} icon={<QueryStatsIcon fontSize="inherit" />} />
+                        <KpiCard label="月均日前-日内价差" value={data?.kpis.spread_monthly_avg_price} unit="¥/MWh" accent="#455a64" icon={<InsightsIcon fontSize="inherit" />} />
+                        <KpiCard label="最高价月份" value={data?.kpis.highest_price_month} accent={resourceColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
+                        <KpiCard label="最低价月份" value={data?.kpis.lowest_price_month} accent={demandColor} icon={<CalendarMonthIcon fontSize="inherit" />} />
                     </Box>
 
                     {rows.length === 0 ? (
