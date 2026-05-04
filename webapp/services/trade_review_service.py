@@ -38,6 +38,7 @@ from webapp.models.trade_review import (
 from webapp.services.contract_service import ContractService
 from webapp.services.load_forecast_service import LoadForecastService
 from webapp.services.load_query_service import LoadQueryService
+from webapp.services.node_spot_price_service import load_node_spot_price_values_48
 from webapp.services.spot_price_service import get_spot_price_curve_48, resample_to_48
 from webapp.services.tou_service import get_tou_timeline_by_date
 
@@ -490,41 +491,16 @@ class TradeReviewService:
             return None
         return numeric_value if math.isfinite(numeric_value) else None
 
-    def _build_node_15m_price_map(self, points: List[Dict[str, Any]]) -> Dict[str, float]:
-        if not points:
-            return {}
-
-        raw_price_map: Dict[str, float] = {}
-        for point in points:
-            time_str = point.get("time")
-            cq_price = self._safe_finite_float(point.get("cq_price"))
-            if time_str and cq_price is not None:
-                raw_price_map[str(time_str)] = cq_price
-
-        aggregated_map: Dict[str, float] = {}
-        for quarter_index in range(1, 97):
-            total_minutes = quarter_index * 15
-            quarter_time = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
-            window_times = []
-            for offset in (10, 5, 0):
-                point_minutes = total_minutes - offset
-                point_time = "24:00" if point_minutes == 1440 else f"{point_minutes // 60:02d}:{point_minutes % 60:02d}"
-                window_times.append(point_time)
-            if all(time_key in raw_price_map for time_key in window_times):
-                aggregated_map[quarter_time] = round(sum(raw_price_map[time_key] for time_key in window_times) / 3, 2)
-        return aggregated_map
-
     def _load_node_realtime_curve(self, target_date: str) -> List[Optional[float]]:
-        node_daily_doc = self.db["node_spot_price_daily"].find_one(
-            {"node_name": self.DEFAULT_NODE_SPOT_PRICE_NAME, "date": target_date},
-            {"_id": 0, "points": 1},
+        node_values = load_node_spot_price_values_48(
+            self.db,
+            target_date,
+            self.DEFAULT_NODE_SPOT_PRICE_NAME,
+            price_type="real_time",
         )
-        node_map = self._build_node_15m_price_map((node_daily_doc or {}).get("points", []))
         values: List[Optional[float]] = []
-        for period in range(1, 49):
-            total_minutes = period * 30
-            time_label = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
-            node_value = node_map.get(time_label)
+        for index in range(48):
+            node_value = node_values[index] if index < len(node_values) else None
             values.append(round(node_value, 6) if node_value is not None else None)
         return values
 

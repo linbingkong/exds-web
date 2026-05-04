@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from webapp.api.dependencies.authz import CurrentUserContext, require_permission
 from webapp.models.trade_review import DayAheadReviewResponse
+from webapp.services.node_spot_price_service import load_node_spot_price_values_48
 from webapp.services.trade_review_service import TradeReviewService
 from webapp.tools.mongo import DATABASE
 
@@ -259,31 +260,6 @@ def _safe_finite_float(value: Any) -> Optional[float]:
     return numeric_value if math.isfinite(numeric_value) else None
 
 
-def _build_node_15m_price_map(points: List[Dict[str, Any]]) -> Dict[str, float]:
-    if not points:
-        return {}
-
-    raw_price_map: Dict[str, float] = {}
-    for point in points:
-        time_str = point.get("time")
-        cq_price = _safe_finite_float(point.get("cq_price"))
-        if time_str and cq_price is not None:
-            raw_price_map[str(time_str)] = cq_price
-
-    aggregated_map: Dict[str, float] = {}
-    for quarter_index in range(1, 97):
-        total_minutes = quarter_index * 15
-        quarter_time = "24:00" if total_minutes == 1440 else f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
-        window_times = []
-        for offset in (10, 5, 0):
-            point_minutes = total_minutes - offset
-            point_time = "24:00" if point_minutes == 1440 else f"{point_minutes // 60:02d}:{point_minutes % 60:02d}"
-            window_times.append(point_time)
-        if all(time_key in raw_price_map for time_key in window_times):
-            aggregated_map[quarter_time] = round(sum(raw_price_map[time_key] for time_key in window_times) / 3, 2)
-    return aggregated_map
-
-
 def _build_time_labels_48() -> List[str]:
     labels: List[str] = []
     for period in range(PERIOD_COUNT):
@@ -310,25 +286,26 @@ def _load_live_realtime_curves_48(target_date: str) -> Dict[str, List[Optional[f
     }
     has_rt_published = any(value is not None for value in rt_map.values())
 
-    node_map: Dict[str, float] = {}
+    node_curve: List[Optional[float]] = [None] * PERIOD_COUNT
     if not has_rt_published:
-        node_daily_doc = DATABASE["node_spot_price_daily"].find_one(
-            {"node_name": DEFAULT_NODE_SPOT_PRICE_NAME, "date": target_date},
-            {"_id": 0, "points": 1},
+        node_curve = load_node_spot_price_values_48(
+            DATABASE,
+            target_date,
+            DEFAULT_NODE_SPOT_PRICE_NAME,
+            price_type="real_time",
         )
-        node_map = _build_node_15m_price_map((node_daily_doc or {}).get("points", []))
 
     rt_curve: List[Optional[float]] = []
-    node_curve: List[Optional[float]] = []
-    for time_label in _build_time_labels_48():
+    rounded_node_curve: List[Optional[float]] = []
+    for index, time_label in enumerate(_build_time_labels_48()):
         rt_value = rt_map.get(time_label)
-        node_value = node_map.get(time_label)
+        node_value = node_curve[index] if index < len(node_curve) else None
         display_value = rt_value if rt_value is not None else node_value
         rt_curve.append(_round(display_value, 2) if display_value is not None else None)
-        node_curve.append(_round(node_value, 2) if node_value is not None else None)
+        rounded_node_curve.append(_round(node_value, 2) if node_value is not None else None)
     return {
         "realtime_price_30m": rt_curve,
-        "node_realtime_price_30m": node_curve,
+        "node_realtime_price_30m": rounded_node_curve,
     }
 
 
