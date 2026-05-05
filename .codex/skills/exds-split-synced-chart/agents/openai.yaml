@@ -1,0 +1,4 @@
+interface:
+  display_name: "EXDS 两层同步图表"
+  short_description: "指导实现共用 X 轴、tooltip 与图例的两层 Recharts 图表。"
+  default_prompt: "在 exds-web 中为需要价格/电量等上下分层展示的页面，使用两层同步图表模式实现共用 X 轴、统一 tooltip 和统一图例。"
