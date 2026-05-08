@@ -922,16 +922,11 @@ export const DayAheadSimulationPage: React.FC = () => {
                             )}
                             <Box
                                 ref={simulationChartRef}
-                                onMouseMove={handleSimulationContainerMouseMove}
-                                onMouseLeave={handleSimulationMouseLeave}
                                 sx={{
                                     flex: 1,
                                     height: { xs: 'auto', md: '100%' },
                                     minHeight: { xs: 420, sm: 460, md: 260 },
                                     position: 'relative',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    overflow: 'hidden',
                                     ...(simulationFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400, backgroundColor: 'background.paper', p: 2 }),
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
@@ -940,6 +935,16 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 <simulationFullscreen.FullscreenEnterButton />
                                 <simulationFullscreen.FullscreenExitButton />
                                 <simulationFullscreen.FullscreenTitle />
+                                <Box
+                                    onMouseMove={handleSimulationContainerMouseMove}
+                                    onMouseLeave={handleSimulationMouseLeave}
+                                    sx={{
+                                        height: '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        overflow: 'hidden',
+                                    }}
+                                >
                                 {simulationHoveredRow && (
                                     <Paper
                                         variant="outlined"
@@ -1041,6 +1046,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             <Bar dataKey="bidMwh" fill={simulation.trade_type === 'manual' ? '#2563eb' : '#0f766e'} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
+                                </Box>
                                 </Box>
                             </Box>
                     </Paper>
@@ -1288,15 +1294,10 @@ export const DayAheadSimulationPage: React.FC = () => {
                         {profitTab === 0 ? (
                             <Box
                                 ref={profitChartRef}
-                                onMouseMove={handleProfitContainerMouseMove}
-                                onMouseLeave={handleProfitMouseLeave}
                                 sx={{
                                     height: { xs: 'auto', md: '100%' },
                                     minHeight: { xs: 400, sm: 440, md: 260 },
                                     position: 'relative',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    overflow: 'hidden',
                                     ...(profitFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400, backgroundColor: 'background.paper', p: 2 }),
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
@@ -1305,6 +1306,16 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 <profitFullscreen.FullscreenEnterButton />
                                 <profitFullscreen.FullscreenExitButton />
                                 <profitFullscreen.FullscreenTitle />
+                                <Box
+                                    onMouseMove={handleProfitContainerMouseMove}
+                                    onMouseLeave={handleProfitMouseLeave}
+                                    sx={{
+                                        height: '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        overflow: 'hidden',
+                                    }}
+                                >
                                 {profitHoveredRow && (
                                     <Paper
                                         variant="outlined"
@@ -1368,6 +1379,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             </Bar>
                                         </ComposedChart>
                                     </ResponsiveContainer>
+                                </Box>
                                 </Box>
                             </Box>
                         ) : (
@@ -1563,15 +1575,10 @@ export const DayAheadSimulationPage: React.FC = () => {
                         {reviewTab === 0 ? (
                             <Box
                                 ref={reviewChartRef}
-                                onMouseMove={handleReviewContainerMouseMove}
-                                onMouseLeave={handleReviewMouseLeave}
                                 sx={{
                                     height: { xs: 'auto', md: '100%' },
                                     minHeight: { xs: 420, sm: 460, md: 260 },
                                     position: 'relative',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    overflow: 'hidden',
                                     ...(reviewFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400, backgroundColor: 'background.paper', p: 2 }),
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
@@ -1580,6 +1587,16 @@ export const DayAheadSimulationPage: React.FC = () => {
                                 <reviewFullscreen.FullscreenEnterButton />
                                 <reviewFullscreen.FullscreenExitButton />
                                 <reviewFullscreen.FullscreenTitle />
+                                <Box
+                                    onMouseMove={handleReviewContainerMouseMove}
+                                    onMouseLeave={handleReviewMouseLeave}
+                                    sx={{
+                                        height: '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        overflow: 'hidden',
+                                    }}
+                                >
                                 {reviewHoveredRow && (
                                     <Paper
                                         variant="outlined"
@@ -1654,6 +1671,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             </Bar>
                                         </ComposedChart>
                                     </ResponsiveContainer>
+                                </Box>
                                 </Box>
                             </Box>
                         ) : (
