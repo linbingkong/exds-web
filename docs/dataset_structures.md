@@ -899,25 +899,28 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 
 - `(month_str: 1, entity_name: 1)`: 唯一索引。
 
+---
 
-## 25. `node_spot_price_daily` - 节点实时出清价格（日覆盖）
+## 25. `node_spot_price_daily` - 节点现货价格（日覆盖）
 
-该集合存储“节点实时现货出清价格”接口采集结果，采用**按日宽文档**结构。
+该集合统一存储节点现货价格接口采集结果，采用**按日宽文档**结构，并通过 `price_type` 区分不同价格类型。
 
 - **数据来源**: `rpa.pipelines.node_spot_price`
-- **更新频率**: 由 `task_schedule_configs` 配置，默认每 15 分钟覆盖一次
+- **更新频率**: 由 `task_schedule_configs` 配置；实时任务默认每 15 分钟覆盖一次，日前、经济、预计划任务默认每日成功一次后停止
 - **业务规则**:
-  - 一条文档表示“一个节点 + 一个日期”
-  - 每次接口调用返回当天全部已发布点位，脚本按日整条覆盖
-  - 当天第一次成功执行时，会额外补采昨天一次，确保昨天数据完整
+  - 一条文档表示“一个价格类型 + 一个节点 + 一个日期”
+  - 同一节点同一天可同时存在实时、日前、经济、预计划四类文档
+  - 实时任务当天第一次成功执行时，会额外补采昨天一次，确保昨天数据完整
+  - 新增的日前、经济、预计划任务按同类型同节点最大日期的第二天继续补采；无历史数据时从 `2026-05-01` 开始
 
 ### 25.1. 字段说明
 
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
+| `price_type` | String | **[复合主键]** 价格类型。可选值：`real_time`、`day_ahead`、`day_ahead_economic`、`day_ahead_pre_schedule`。 |
 | `node_name` | String | **[复合主键]** 节点名称。 |
 | `date` | String | **[复合主键]** 数据日期，格式 `YYYY-MM-DD`。 |
-| `points` | Array | 当天全部 5 分钟点位数组。 |
+| `points` | Array | 当天点位数组。实时数据为 5 分钟点位；日前、经济、预计划数据通常为 15 分钟 96 点。 |
 | `points.time` | String | 时刻点，格式 `HH:MM`。 |
 | `points.cq_price` | Number | 出清价格。 |
 | `points.fl_energy_price` | Number | 分量电价。 |
@@ -926,13 +929,13 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 
 ### 25.2. 索引
 
-- `(node_name: 1, date: 1)`: 唯一复合索引。
+- `(price_type: 1, node_name: 1, date: 1)`: 唯一复合索引。
 
 ---
 
-## 26. `node_spot_price_targets` - 节点实时出清价格采集目标
+## 26. `node_spot_price_targets` - 节点现货价格采集目标
 
-该集合存储需要采集的节点名单。
+该集合存储需要采集的节点名单，并支持按价格类型分别控制是否采集。
 
 - **数据来源**: 系统初始化默认写入 + 手工维护
 - **默认节点**: `凌云站/500kV.Ⅰ母`
@@ -942,9 +945,171 @@ db.customer_load_forecasts.createIndex({ "target_date": 1, "customer_id": 1 })
 | 字段名 | 数据类型 | 描述 |
 | :--- | :--- | :--- |
 | `node_name` | String | **[主键]** 节点名称。 |
-| `enabled` | Boolean | 是否启用采集。 |
+| `real_time_enabled` | Boolean | 是否采集实时节点现货价格。 |
+| `day_ahead_enabled` | Boolean | 是否采集日前节点出清价格。 |
+| `day_ahead_economic_enabled` | Boolean | 是否采集经济节点出清结果。 |
+| `day_ahead_pre_schedule_enabled` | Boolean | 是否采集预计划日前节点出清结果。 |
 
 ### 26.2. 索引
 
 - `(node_name: 1)`: 唯一索引。
-- `(enabled: 1, node_name: 1)`: 普通复合索引。
+- `(real_time_enabled: 1, node_name: 1)`: 普通复合索引。
+- `(day_ahead_enabled: 1, node_name: 1)`: 普通复合索引。
+- `(day_ahead_economic_enabled: 1, node_name: 1)`: 普通复合索引。
+- `(day_ahead_pre_schedule_enabled: 1, node_name: 1)`: 普通复合索引。
+
+---
+
+## 27. `storage_stations` - 储能电站档案
+
+该集合存储储能运营模块使用的电站档案参数，是电站运行信息、储能申报策略生成与复盘计算的基础数据。
+
+- **数据来源**: 电站运行信息页面维护；无真实电站时前端可展示演示档案但不落库
+- **更新频率**: 按用户维护操作更新
+- **数据粒度**: 一条文档对应一个储能电站
+
+### 27.1 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `station_id` | String | 电站唯一 ID。 |
+| `station_name` | String | 电站名称。 |
+| `control_unit_name` | String | 控制单元名称。 |
+| `node_name` | String | 关联节点名称，用于读取节点现货价格。 |
+| `voltage_level` | String | 电压等级，用于匹配国网代购电价参数。 |
+| `rated_power_mw` | Number | 电能量市场额定充放电功率，单位 MW。 |
+| `rated_capacity_mwh` | Number | 电能量市场额定容量，单位 MWh。 |
+| `is_hybrid` | Boolean | 是否混合储能。 |
+| `fm_power_mw` | Number | 调频额定功率，单位 MW；调频出力基值上限按该值的 90% 控制。 |
+| `fm_capacity_mwh` | Number | 调频额定容量，单位 MWh。 |
+| `charge_efficiency` | Number | 充电效率，取值 0-1。 |
+| `discharge_efficiency` | Number | 放电效率，取值 0-1。 |
+| `discharge_depth` | Number | 放电深度 DoD，取值 0-1。 |
+| `fm_k_value` | Number | 调频 K 值，用于调频收益计算与复盘中标判定折算。 |
+| `default_mileage_beta` | Number | 默认调频里程系数 β。 |
+| `default_soc` | Number | 默认初始 SOC，取值 0-1。 |
+| `degradation_cost_per_mwh` | Number | 度电衰减折旧成本，单位 元/MWh。 |
+| `status` | String | 电站状态。可选值：`启用`、`停用`。 |
+| `created_at` | ISODate | 创建时间。 |
+| `created_by` | String | 创建人。 |
+| `updated_at` | ISODate | 更新时间。 |
+| `updated_by` | String | 更新人。 |
+
+### 27.2 索引
+
+- `(station_id: 1)`: 唯一索引。
+- `(status: 1)`: 普通索引。
+- `(status: 1, created_at: -1)`: 普通复合索引，用于电站列表排序。
+
+---
+
+## 28. `storage_strategies` - 储能申报策略
+
+该集合存储储能申报策略的基础信息与策略参数。策略生成申报数据时，会读取关联电站档案、策略类型和参数。
+
+- **数据来源**: 储能申报策略页面策略列表 CRUD
+- **更新频率**: 按用户维护操作更新
+- **数据粒度**: 一条文档对应一个储能申报策略
+
+### 28.1 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `strategy_id` | String | 策略唯一 ID。 |
+| `station_id` | String | 关联电站 ID。 |
+| `strategy_name` | String | 策略名称。 |
+| `strategy_type` | String | 策略类型。当前包括 `simple_peak_valley`、`fm_priority` 等。 |
+| `strategy_status` | String | 策略状态。可选值：`启用`、`停用`。 |
+| `fm_price_threshold` | Number | 调频价差阈值兼容字段；当前策略参数中也会保留同名参数。 |
+| `description` | String | 策略说明。 |
+| `strategy_params` | Array\<Object\> | 策略参数数组。 |
+| `strategy_params.param_key` | String | 参数键，如 `fm_price_threshold`、`max_soc`。 |
+| `strategy_params.param_name` | String | 参数显示名称，如“调频价差阈值”“最高SOC”。 |
+| `strategy_params.param_value` | String | 参数值，按字符串保存，计算时转换为数值。 |
+| `strategy_params.unit` | String | 参数单位，如 `元/MWh`、`%`。 |
+| `strategy_params.description` | String | 参数说明。 |
+| `created_at` | ISODate | 创建时间。 |
+| `created_by` | String | 创建人。 |
+| `updated_at` | ISODate | 更新时间。 |
+| `updated_by` | String | 更新人。 |
+
+### 28.2 默认策略参数
+
+| 参数键 | 默认值 | 单位 | 描述 |
+| :--- | :--- | :--- | :--- |
+| `fm_price_threshold` | `180` | 元/MWh | 峰谷套利价差阈值；低于阈值时退回全天调频策略。 |
+| `max_soc` | `90` | % | 策略计算充放电目标功率时使用的最高 SOC。 |
+
+### 28.3 索引
+
+- `(strategy_id: 1)`: 唯一索引。
+- `(station_id: 1)`: 普通索引。
+- `(strategy_status: 1)`: 普通索引。
+- `(station_id: 1, strategy_status: 1, created_at: -1)`: 普通复合索引，用于按电站加载策略列表。
+
+---
+
+## 29. `storage_declarations` - 储能策略申报结果
+
+该集合存储储能申报策略在某一目标日生成并保存的模拟申报结果。
+
+- **数据来源**: 储能申报策略页面生成/暂存/提交
+- **更新频率**: 按用户操作写入；同一策略同一目标日重复生成保存时覆盖更新
+- **数据粒度**: 一条文档对应一个 `strategy_id + target_date`
+
+### 29.1 字段说明
+
+| 字段名 | 数据类型 | 描述 |
+| :--- | :--- | :--- |
+| `declaration_id` | String | 申报结果唯一 ID。 |
+| `declaration_key` | String | 业务唯一键，格式为 `strategy_id_YYYYMMDD`。 |
+| `station_id` | String | 电站 ID。 |
+| `station_name` | String | 保存时的电站名称快照。 |
+| `strategy_id` | String | 策略 ID。 |
+| `strategy_name` | String | 保存时的策略名称快照。 |
+| `strategy_type` | String | 保存时的策略类型。 |
+| `target_date` | String | 目标运行日，格式 `YYYY-MM-DD`。 |
+| `status` | String | 结果状态。可选值：`created`、`submitted`、`settled`。 |
+| `declare_status` | String | 页面申报状态。可选值：`未申报`、`已申报`。 |
+| `forecast_date` | ISODate | 本次生成或保存的预测参考时间。 |
+| `generated_at` | ISODate | 生成时间。 |
+| `submitted_at` | ISODate | 提交时间，未提交时为空。 |
+| `settled_at` | ISODate | 结算时间，未结算时为空。 |
+| `energy_declaration_96` | Array\<Number\> | 96 点电能量申报功率数组，正数为放电，负数为充电，单位 MW。 |
+| `fm_declaration_24` | Array\<Number\> | 24 点调频里程报价数组，单位 元/MW。 |
+| `energy_slots_96` | Array\<Object\> | 96 点电能量申报明细，包含 `time_point`、`power_mw`。 |
+| `fm_slots_24` | Array\<Object\> | 24 点调频申报明细，包含 `period_start`、`period_end`、`output_base_mw`、`mileage_price`。 |
+| `soc_trajectory_96` | Array\<Number\> | 96 点 SOC 轨迹，取值范围 0-1。 |
+| `spot_price_forecast_96` | Array\<Number\> | 96 点现货价格预测，单位 元/MWh。 |
+| `arbitrage_executed` | Boolean | 是否执行峰谷套利。 |
+| `charge_hours` | Array\<Number\> | 充电小时集合。 |
+| `discharge_hours` | Array\<Number\> | 放电小时集合。 |
+| `p_charge_mw` | Number | 本次生成的充电功率，单位 MW。 |
+| `p_discharge_mw` | Number | 本次生成的放电功率，单位 MW。 |
+| `violations` | Array\<String\> | 风控校验违规说明。 |
+| `total_charge_mwh` | Number | 日充电量，单位 MWh。 |
+| `total_discharge_mwh` | Number | 日放电量，单位 MWh。 |
+| `fm_hours` | Number | 调频申报小时数。 |
+| `review_status` | String | 复盘状态。可选值：`未复盘`、`已复盘`。 |
+| `station_snapshot` | Object | 保存时的电站关键参数快照。 |
+| `strategy_snapshot` | Object | 保存时的策略关键参数快照。 |
+| `params_snapshot` | Object | 前端生成参数与人工覆盖参数快照。 |
+| `created_at` | ISODate | 创建时间。 |
+| `created_by` | String | 创建人。 |
+| `updated_at` | ISODate | 更新时间。 |
+| `updated_by` | String | 更新人。 |
+
+### 29.2 索引
+
+- `(declaration_id: 1)`: 唯一索引。
+- `(declaration_key: 1)`: 唯一索引。
+- `(strategy_id: 1, target_date: 1)`: 唯一复合索引，保证同一策略同一目标日只保留一条结果。
+- `(station_id: 1, target_date: 1)`: 普通复合索引，用于按电站与目标日查询。
+- `(strategy_id: 1)`: 普通索引，用于策略维度查询。
+- `(status: 1, target_date: 1)`: 普通复合索引，用于申报状态与日期查询。
+- `(station_id: 1, target_date: 1, updated_at: -1)`: 普通复合索引，用于按电站、目标日读取最新申报。
+- `(station_id: 1, strategy_id: 1, review_status: 1, target_date: 1)`: 普通复合索引，用于策略收益区间统计。
+- `(review_status: 1, target_date: 1)`: 普通复合索引，用于自动复盘回填扫描待复盘记录；自动任务仅扫描 `target_date` 不晚于昨天的记录。
+
+---
+

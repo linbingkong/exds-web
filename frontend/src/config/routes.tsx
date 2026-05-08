@@ -37,6 +37,8 @@ import CustomerProfitAnalysisPage from '../pages/CustomerProfitAnalysisPage';
 import DayAheadSimulationPage from '../pages/DayAheadSimulationPage';
 import RollingMatchQuotesPage from '../pages/RollingMatchQuotesPage';
 import FreqRegulationMarketPage from '../pages/FreqRegulationMarketPage';
+import StorageStationOperationInfoPage from '../pages/StorageStationOperationInfoPage';
+import StorageDeclarationStrategyPage from '../pages/StorageDeclarationStrategyPage';
 
 export interface RouteConfig {
     path: string;
@@ -98,6 +100,9 @@ export const routeConfigs: RouteConfig[] = [
 
     // 储能运营
     { path: '/energy-storage/freq-regulation-market', title: '调频市场价格', component: FreqRegulationMarketPage },
+    { path: '/energy-storage/station-operation-info', title: '电站运行信息', component: StorageStationOperationInfoPage },
+    { path: '/energy-storage/declaration-strategy', title: '储能申报策略', component: StorageDeclarationStrategyPage },
+    { path: '/energy-storage/revenue-settlement', title: '储能收益结算', component: PlaceholderPage },
 
     // 基础数据
     { path: '/basic-data/grid-price', title: '国网代理购电', component: GridAgencyPricePage },

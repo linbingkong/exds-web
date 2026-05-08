@@ -1138,9 +1138,9 @@ export const DayAheadSimulationPage: React.FC = () => {
         display: 'flex',
         flexDirection: 'column',
         gap: { xs: 1.5, sm: 2 },
-        px: { xs: 1.5, sm: 2 },
-        pt: { xs: 1.5, sm: 2 },
-        pb: { xs: 1.5, sm: 2 },
+        px: 0,
+        pt: 0,
+        pb: 0,
         minHeight: '100%',
     } as const;
 

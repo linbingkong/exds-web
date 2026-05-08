@@ -29,6 +29,9 @@ from webapp.scheduler.jobs.auth_jobs import (
 from webapp.scheduler.jobs.dashboard_jobs import (
     event_driven_dashboard_snapshot_job
 )
+from webapp.scheduler.jobs.storage_declaration_jobs import (
+    event_driven_storage_declaration_generation_job
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +121,15 @@ def setup_scheduler(app):
         'interval',
         minutes=5,
         id='web_event_dashboard_snapshot',
+        replace_existing=True
+    )
+
+    # 储能申报策略自动生成与复盘回填 (9:30 后检查目标日预测价格，生成成功后当天跳过生成阶段)
+    scheduler.add_job(
+        event_driven_storage_declaration_generation_job,
+        'interval',
+        minutes=10,
+        id='web_event_storage_declaration_generation',
         replace_existing=True
     )
     

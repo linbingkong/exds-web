@@ -60,6 +60,9 @@ const ROUTE_PERMISSION_RULES: RoutePermissionRule[] = [
     { pattern: /^\/settlement\/monthly-analysis(\/.*)?$/, viewPermission: modulePermission('settlement_monthly_detail', 'view') },
     { pattern: /^\/settlement\/monthly-customer-detail(\/.*)?$/, viewPermission: modulePermission('settlement_monthly_detail', 'view') },
     { pattern: /^\/energy-storage\/freq-regulation-market(\/.*)?$/, viewPermission: modulePermission('freq_regulation_market', 'view') },
+    { pattern: /^\/energy-storage\/station-operation-info(\/.*)?$/, viewPermission: modulePermission('energy_station_operation_info', 'view') },
+    { pattern: /^\/energy-storage\/declaration-strategy(\/.*)?$/, viewPermission: modulePermission('storage_declaration_strategy', 'view') },
+    { pattern: /^\/energy-storage\/revenue-settlement(\/.*)?$/, viewPermission: modulePermission('storage_revenue_settlement', 'view') },
     { pattern: /^\/basic-data\/grid-price(\/.*)?$/, viewPermission: modulePermission('basic_sgcc_price', 'view') },
     { pattern: /^\/basic-data\/tou-definition(\/.*)?$/, viewPermission: modulePermission('basic_tou_definition', 'view') },
     { pattern: /^\/basic-data\/load-validation(\/.*)?$/, viewPermission: modulePermission('basic_load_validation', 'view') },
@@ -141,6 +144,12 @@ const MUTATION_PERMISSION_RULES: MutationPermissionRule[] = [
         pattern: /^\/api\/v1\/retail-settlement\/monthly-calc$/,
         allPermissions: [modulePermission('settlement_monthly_detail', 'edit'), 'settlement:recalc:execute'],
     },
+
+    { methods: ['put'], pattern: /^\/api\/v1\/storage-declaration\/stations\/[^/]+$/, allPermissions: [modulePermission('energy_station_operation_info', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/storage-declaration\/stations\/[^/]+\/status$/, allPermissions: [modulePermission('storage_declaration_strategy', 'edit')] },
+    { methods: ['post', 'delete'], pattern: /^\/api\/v1\/storage-declaration\/stations(\/.*)?$/, allPermissions: [modulePermission('storage_declaration_strategy', 'edit')] },
+    { methods: ['post', 'put', 'delete'], pattern: /^\/api\/v1\/storage-declaration\/strategies(\/.*)?$/, allPermissions: [modulePermission('storage_declaration_strategy', 'edit')] },
+    { methods: ['post'], pattern: /^\/api\/v1\/storage-declaration\/(generate|save|calculate-revenue|review-simulate)(\/.*)?$/, allPermissions: [modulePermission('storage_declaration_strategy', 'edit')] },
 
     { methods: ['post'], pattern: /^\/api\/v1\/system\/alerts\/[^/]+\/resolve$/, allPermissions: [modulePermission('system_logs', 'edit')] },
     { methods: ['post'], pattern: /^\/api\/v1\/rpa\/tasks\/[^/]+\/[^/]+\/retry$/, allPermissions: [modulePermission('system_data_access', 'edit')] },

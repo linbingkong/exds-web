@@ -25,6 +25,7 @@ from webapp.api import (
     v1_freq_comp_fee,
     medium_term_forecast,  # New module
     v1_rolling_match,
+    v1_storage_declaration,
 )
 from webapp.api import v1_auth
 
@@ -68,6 +69,7 @@ router.include_router(v1_bid.router)
 router.include_router(v1_freq_regulation.router)
 router.include_router(v1_freq_comp_fee.router)
 router.include_router(v1_rolling_match.router)
+router.include_router(v1_storage_declaration.router)
 
 # Include additional routers previously in main.py
 router.include_router(v1_rpa_monitor.router, prefix="/rpa", tags=["RPA监控"])

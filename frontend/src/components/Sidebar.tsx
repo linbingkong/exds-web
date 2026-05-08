@@ -132,6 +132,9 @@ const menuItems: MenuItem[] = [
         icon: <StorageOutlined />,
         subItems: [
             { text: '调频市场价格', path: '/energy-storage/freq-regulation-market', icon: <ShowChartOutlined /> },
+            { text: '电站运行信息', path: '/energy-storage/station-operation-info', icon: <StorageOutlined /> },
+            { text: '储能申报策略', path: '/energy-storage/declaration-strategy', icon: <FunctionsOutlined /> },
+            { text: '储能收益结算', path: '/energy-storage/revenue-settlement', icon: <PaymentIcon /> },
         ],
     },
     {
