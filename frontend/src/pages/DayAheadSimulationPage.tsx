@@ -68,8 +68,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useChartFullscreen } from '../hooks/useChartFullscreen';
 
 type PanelKey = 0 | 1 | 2 | 3;
+type ChartTooltipPosition = { x: number; y: number; containerWidth: number };
 
 const EDIT_PERMISSION = 'module:strategy_dayahead:edit';
+const PROFIT_BAR_COLOR = '#16a34a';
+const LOSS_BAR_COLOR = '#dc2626';
+const FLAT_BAR_COLOR = '#94a3b8';
 const EMPTY_PARAM: TradeSourceParam = { param_key: '', param_name: '', param_value: '', unit: '', description: '' };
 const PARAM_DOC_EXPLANATIONS: Record<string, { param_name: string; unit: string; description: string }> = {
     max_bid_mwh_per_period: { param_name: '单时段申报上限', unit: 'MWh', description: '单个 30 分钟时段的申报电量上限。最终 bid_mwh = bid_ratio × max_bid_mwh_per_period。' },
@@ -97,6 +101,34 @@ const formatProfitRatio = (value: number) => (value > 0 ? value.toFixed(2) : '--
 const formatReviewMetric = (value: number | null | undefined, digits = 2, suffix = '') => (
     value === null || value === undefined || !Number.isFinite(value) ? '-' : `${value.toFixed(digits)}${suffix}`
 );
+
+const getFloatingTooltipSx = (
+    position: ChartTooltipPosition | null,
+    tooltipWidth: number,
+    tooltipHeight: number,
+    fallbackRight = 12,
+) => {
+    if (!position) {
+        return {
+            top: 12,
+            right: fallbackRight,
+        };
+    }
+
+    const horizontalOffset = 16;
+    const verticalOffset = 16;
+    const placeRight = position.x <= position.containerWidth - tooltipWidth - horizontalOffset;
+    const placeBelow = position.y <= tooltipHeight + verticalOffset;
+
+    return {
+        left: position.x + (placeRight ? horizontalOffset : -horizontalOffset),
+        top: Math.max(position.y + (placeBelow ? verticalOffset : -verticalOffset), 12),
+        transform: [
+            placeRight ? '' : 'translateX(-100%)',
+            placeBelow ? '' : 'translateY(-100%)',
+        ].filter(Boolean).join(' ') || undefined,
+    };
+};
 
 const getMatchedParamDocMeta = (param: Pick<TradeSourceParam, 'param_key' | 'param_name'>) => {
     const key = (param.param_key || '').trim();
@@ -153,7 +185,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     const [simulationRefAreaRight, setSimulationRefAreaRight] = useState<number | null>(null);
     const [simulationSelection, setSimulationSelection] = useState<{ start: number; end: number } | null>(null);
     const [simulationHoveredPeriod, setSimulationHoveredPeriod] = useState<number | null>(null);
-    const [simulationTooltipPosition, setSimulationTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
+    const [simulationTooltipPosition, setSimulationTooltipPosition] = useState<ChartTooltipPosition | null>(null);
 
     const range = useMemo(() => dayAheadBidApi.buildDefaultProfitRange(), []);
     const [profitStartDate, setProfitStartDate] = useState<Date | null>(new Date(range.start_date));
@@ -163,14 +195,14 @@ export const DayAheadSimulationPage: React.FC = () => {
     const [profitCurve, setProfitCurve] = useState<ProfitCurvePoint[]>([]);
     const [profitRows, setProfitRows] = useState<ProfitDailyRow[]>([]);
     const [profitHoveredDate, setProfitHoveredDate] = useState<string | null>(null);
-    const [profitTooltipPosition, setProfitTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
+    const [profitTooltipPosition, setProfitTooltipPosition] = useState<ChartTooltipPosition | null>(null);
     const [profitTab, setProfitTab] = useState(0);
 
     const [reviewTargetDate, setReviewTargetDate] = useState<Date | null>(new Date());
     const [reviewTab, setReviewTab] = useState(0);
     const [dailyReview, setDailyReview] = useState<DailyReviewDetail | null>(null);
     const [reviewHoveredPeriod, setReviewHoveredPeriod] = useState<number | null>(null);
-    const [reviewTooltipPosition, setReviewTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
+    const [reviewTooltipPosition, setReviewTooltipPosition] = useState<ChartTooltipPosition | null>(null);
 
     const strategyDetailCacheRef = useRef<Record<string, TradeSourceDetail | null>>({});
     const simulationCacheRef = useRef<Record<string, SimulationDetail>>({});
@@ -178,9 +210,19 @@ export const DayAheadSimulationPage: React.FC = () => {
     const reviewCacheRef = useRef<Record<string, DailyReviewDetail>>({});
 
     const simulationChartRef = useRef<HTMLDivElement>(null);
+    const profitChartRef = useRef<HTMLDivElement>(null);
+    const reviewChartRef = useRef<HTMLDivElement>(null);
     const simulationFullscreen = useChartFullscreen({
         chartRef: simulationChartRef,
         title: simulation ? `模拟申报 - ${simulation.strategy_name}` : '模拟申报',
+    });
+    const profitFullscreen = useChartFullscreen({
+        chartRef: profitChartRef,
+        title: '策略收益曲线',
+    });
+    const reviewFullscreen = useChartFullscreen({
+        chartRef: reviewChartRef,
+        title: '单日复盘曲线',
     });
 
     useEffect(() => {
@@ -333,11 +375,13 @@ export const DayAheadSimulationPage: React.FC = () => {
         if (!profitStartDate || !profitEndDate || profitStartDate > profitEndDate) return [];
         const curveMap = new Map(profitCurve.map((item) => [item.date, item]));
         const volumeMap = new Map(profitRows.map((item) => [item.date, item.bid_total_mwh]));
+        const pnlMap = new Map(profitRows.map((item) => [item.date, item.realized_pnl_yuan]));
         return eachDayOfInterval({ start: profitStartDate, end: profitEndDate }).map((date) => {
             const dateStr = format(date, 'yyyy-MM-dd');
             const curveItem = curveMap.get(dateStr);
             const isAmountMetric = profitMetric === 'amount';
             const strategyValue = curveItem?.strategy_value ?? null;
+            const realizedPnlYuan = pnlMap.get(dateStr) ?? null;
             return {
                 date: dateStr,
                 strategyValue: strategyValue == null
@@ -345,6 +389,14 @@ export const DayAheadSimulationPage: React.FC = () => {
                     : (isAmountMetric ? Number((strategyValue / 10000).toFixed(3)) : Number(strategyValue.toFixed(3))),
                 strategyUnit: isAmountMetric ? '万元' : (curveItem?.unit_label || '元/MWh'),
                 bidTotalMwh: volumeMap.get(dateStr) ?? null,
+                realizedPnlYuan,
+                barColor: realizedPnlYuan == null
+                    ? FLAT_BAR_COLOR
+                    : realizedPnlYuan > 0
+                    ? PROFIT_BAR_COLOR
+                    : realizedPnlYuan < 0
+                    ? LOSS_BAR_COLOR
+                    : FLAT_BAR_COLOR,
             };
         });
     }, [profitCurve, profitEndDate, profitMetric, profitRows, profitStartDate]);
@@ -385,35 +437,11 @@ export const DayAheadSimulationPage: React.FC = () => {
     }, [profitSummary]);
 
     const simulationTooltipSx = useMemo(() => {
-        if (!simulationTooltipPosition) {
-            return {
-                top: 12,
-                right: 16,
-            };
-        }
-        const tooltipWidth = 220;
-        const placeLeft = simulationTooltipPosition.x <= simulationTooltipPosition.containerWidth - tooltipWidth - 24;
-        return {
-            left: simulationTooltipPosition.x + (placeLeft ? 16 : -16),
-            top: Math.max(simulationTooltipPosition.y - 12, 12),
-            transform: placeLeft ? 'translateY(-100%)' : 'translate(-100%, -100%)',
-        };
+        return getFloatingTooltipSx(simulationTooltipPosition, 220, 96, 16);
     }, [simulationTooltipPosition]);
 
     const profitTooltipSx = useMemo(() => {
-        if (!profitTooltipPosition) {
-            return {
-                top: 12,
-                right: 12,
-            };
-        }
-        const tooltipWidth = 220;
-        const placeLeft = profitTooltipPosition.x <= profitTooltipPosition.containerWidth - tooltipWidth - 24;
-        return {
-            left: profitTooltipPosition.x + (placeLeft ? 16 : -16),
-            top: Math.max(profitTooltipPosition.y - 12, 12),
-            transform: placeLeft ? 'translateY(-100%)' : 'translate(-100%, -100%)',
-        };
+        return getFloatingTooltipSx(profitTooltipPosition, 220, 96);
     }, [profitTooltipPosition]);
 
     const reviewChartRows = useMemo(() => (
@@ -463,19 +491,7 @@ export const DayAheadSimulationPage: React.FC = () => {
     }, [reviewChartRows]);
 
     const reviewTooltipSx = useMemo(() => {
-        if (!reviewTooltipPosition) {
-            return {
-                top: 12,
-                right: 12,
-            };
-        }
-        const tooltipWidth = 236;
-        const placeLeft = reviewTooltipPosition.x <= reviewTooltipPosition.containerWidth - tooltipWidth - 24;
-        return {
-            left: reviewTooltipPosition.x + (placeLeft ? 16 : -16),
-            top: Math.max(reviewTooltipPosition.y - 12, 12),
-            transform: placeLeft ? 'translateY(-100%)' : 'translate(-100%, -100%)',
-        };
+        return getFloatingTooltipSx(reviewTooltipPosition, 236, 190);
     }, [reviewTooltipPosition]);
 
     const reviewMetricItems = useMemo(() => {
@@ -916,7 +932,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                     display: 'flex',
                                     flexDirection: 'column',
                                     overflow: 'hidden',
-                                    ...(simulationFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1300, backgroundColor: 'background.paper', p: 2 }),
+                                    ...(simulationFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400, backgroundColor: 'background.paper', p: 2 }),
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
                                 }}
@@ -944,7 +960,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         <Typography variant="body2">申报电量：{simulationHoveredRow.bidMwh.toFixed(1)} MWh</Typography>
                                     </Paper>
                                 )}
-                                <Box sx={{ height: { md: '58%' }, flex: { xs: '0 0 240px', sm: '0 0 270px', md: '0 0 auto' }, minHeight: { xs: 240, sm: 270, md: 0 } }}>
+                                <Box sx={{ height: { md: '58%' }, flex: { xs: '0 0 240px', sm: '0 0 270px', md: '0 0 auto' }, minHeight: { xs: 240, sm: 270, md: 0 }, ...(simulationFullscreen.isFullscreen && { height: 'auto', flex: '3 1 0', minHeight: 0 }) }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={simulationRows}
@@ -988,7 +1004,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
-                                <Box sx={{ height: { md: '42%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 } }}>
+                                <Box sx={{ height: { md: '42%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 }, ...(simulationFullscreen.isFullscreen && { height: 'auto', flex: '2 1 0', minHeight: 0 }) }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={simulationRows}
@@ -1271,6 +1287,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                     <Box sx={{ pt: 1, px: 1.5, pb: 0.75, flex: 1, minHeight: 0 }}>
                         {profitTab === 0 ? (
                             <Box
+                                ref={profitChartRef}
                                 onMouseMove={handleProfitContainerMouseMove}
                                 onMouseLeave={handleProfitMouseLeave}
                                 sx={{
@@ -1280,10 +1297,14 @@ export const DayAheadSimulationPage: React.FC = () => {
                                     display: 'flex',
                                     flexDirection: 'column',
                                     overflow: 'hidden',
+                                    ...(profitFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400, backgroundColor: 'background.paper', p: 2 }),
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
                                 }}
                             >
+                                <profitFullscreen.FullscreenEnterButton />
+                                <profitFullscreen.FullscreenExitButton />
+                                <profitFullscreen.FullscreenTitle />
                                 {profitHoveredRow && (
                                     <Paper
                                         variant="outlined"
@@ -1304,7 +1325,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         <Typography variant="body2">申报电量：{profitHoveredRow.bidTotalMwh == null ? '-' : `${profitHoveredRow.bidTotalMwh.toFixed(1)} MWh`}</Typography>
                                     </Paper>
                                 )}
-                                <Box sx={{ height: { md: '52%' }, flex: { xs: '0 0 220px', sm: '0 0 250px', md: '0 0 auto' }, minHeight: { xs: 220, sm: 250, md: 0 } }}>
+                                <Box sx={{ height: { md: '52%' }, flex: { xs: '0 0 220px', sm: '0 0 250px', md: '0 0 auto' }, minHeight: { xs: 220, sm: 250, md: 0 }, ...(profitFullscreen.isFullscreen && { height: 'auto', flex: '3 1 0', minHeight: 0 }) }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={profitChartRows}
@@ -1321,7 +1342,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
-                                <Box sx={{ height: { md: '48%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 } }}>
+                                <Box sx={{ height: { md: '48%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 }, ...(profitFullscreen.isFullscreen && { height: 'auto', flex: '2 1 0', minHeight: 0 }) }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={profitChartRows}
@@ -1340,7 +1361,11 @@ export const DayAheadSimulationPage: React.FC = () => {
                                             />
                                             <YAxis tick={{ fontSize: 12 }} />
                                             {profitHoveredDate && <ReferenceLine x={profitHoveredDate} stroke="#64748b" strokeDasharray="4 4" />}
-                                            <Bar dataKey="bidTotalMwh" fill="#2563eb" name="申报电量" isAnimationActive={false} />
+                                            <Bar dataKey="bidTotalMwh" name="申报电量" isAnimationActive={false}>
+                                                {profitChartRows.map((row) => (
+                                                    <Cell key={`profit-volume-${row.date}`} fill={row.barColor} />
+                                                ))}
+                                            </Bar>
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
@@ -1537,6 +1562,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                     <Box sx={{ pt: 1, px: 1.5, pb: 0.75, flex: 1, minHeight: 0 }}>
                         {reviewTab === 0 ? (
                             <Box
+                                ref={reviewChartRef}
                                 onMouseMove={handleReviewContainerMouseMove}
                                 onMouseLeave={handleReviewMouseLeave}
                                 sx={{
@@ -1546,10 +1572,14 @@ export const DayAheadSimulationPage: React.FC = () => {
                                     display: 'flex',
                                     flexDirection: 'column',
                                     overflow: 'hidden',
+                                    ...(reviewFullscreen.isFullscreen && { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 1400, backgroundColor: 'background.paper', p: 2 }),
                                     '& .recharts-surface:focus': { outline: 'none' },
                                     '& *:focus': { outline: 'none !important' },
                                 }}
                             >
+                                <reviewFullscreen.FullscreenEnterButton />
+                                <reviewFullscreen.FullscreenExitButton />
+                                <reviewFullscreen.FullscreenTitle />
                                 {reviewHoveredRow && (
                                     <Paper
                                         variant="outlined"
@@ -1581,7 +1611,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         当前策略在所选日期暂无交易数据。
                                     </Alert>
                                 )}
-                                <Box sx={{ height: { md: '54%' }, flex: { xs: '0 0 240px', sm: '0 0 270px', md: '0 0 auto' }, minHeight: { xs: 240, sm: 270, md: 0 } }}>
+                                <Box sx={{ height: { md: '54%' }, flex: { xs: '0 0 240px', sm: '0 0 270px', md: '0 0 auto' }, minHeight: { xs: 240, sm: 270, md: 0 }, ...(reviewFullscreen.isFullscreen && { height: 'auto', flex: '3 1 0', minHeight: 0 }) }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={reviewChartRows}
@@ -1604,7 +1634,7 @@ export const DayAheadSimulationPage: React.FC = () => {
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 </Box>
-                                <Box sx={{ height: { md: '46%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 } }}>
+                                <Box sx={{ height: { md: '46%' }, flex: { xs: '0 0 180px', sm: '0 0 190px', md: '0 0 auto' }, minHeight: { xs: 180, sm: 190, md: 0 }, ...(reviewFullscreen.isFullscreen && { height: 'auto', flex: '2 1 0', minHeight: 0 }) }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <ComposedChart
                                             data={reviewChartRows}
